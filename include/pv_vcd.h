@@ -13,13 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <string>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 
 #ifndef _PV_VCD_H_
 #define _PV_VCD_H_
+
+#define PV_VCD_VERSION "PseudoVerilog vcd::writer 1.0"
 
 // enter VCD namespace
 namespace vcd {
@@ -76,27 +74,33 @@ namespace vcd {
     // VCD writer class
     class writer {
     public:
-        // constructor: creates VCD stream (or sets error flag for object)
+        // Constructor: creates VCD stream (or sets error flag for object)
         writer(const std::string& file_name) {
             // attempt to open file and create a stream for it
             if (!vcd_file.open(file_name, std::ios::out)) {
                 std::cerr << "File " << file_name << ": " << strerror(errno);
                 file_is_open = false;
+            } else {
+                vcd_stream = new std::ostream(&vcd_file);
+                file_is_open = true;
             }
-            vcd_stream = new std::ostream(&vcd_file);
-            file_is_open = true;
             is_emitting_change = true;
+
+            // Set default VCD options
+            opt_vcd_start_clock = -1;
+            opt_vcd_stop_clock = -1;
 
             // init timescale, clock rate, and ticks
             timescale = 1.0;
             clock_freq = 1.0;
             ticks_per_clock = 2ull;
+            time_str = "1 s";
 
             // init vcd_clock_ID; default value
             vcd_clock_ID = "*@";
         }
 
-        // destructor: closes file
+        // Destructor: closes file
         virtual ~writer() {
             if (file_is_open) {
                 vcd_file.close();
@@ -104,26 +108,27 @@ namespace vcd {
             }
         }
 
-        // getter for stream
-        inline std::ostream& stream() { return *vcd_stream; }
+        // Class setters
+        inline void set_vcd_start_clock(const int32_t v) { opt_vcd_start_clock = v; }
+        inline void set_vcd_stop_clock(const int32_t v) { opt_vcd_stop_clock = v; }
+        inline const int32_t get_vcd_start_clock() { return opt_vcd_start_clock; }
+        inline const int32_t get_vcd_stop_clock() { return opt_vcd_stop_clock; }
+        inline void set_vcd_clock_ID(const std::string id) { vcd_clock_ID = id; }
 
-        // setter/getter to set operating clock rate and ticks per clock
+        // Class getters
+        inline std::ostream* get_stream() { return vcd_stream; }
         inline float get_timescale() const { return timescale; }
         inline float get_clock_freq() const { return clock_freq; }
         inline uint64_t get_ticks_per_clock() const { return ticks_per_clock; }
-        void set_clock_freq(const float freq) {
-            clock_freq = freq;
-            float f_ticks_per_clock = 1.0 / (clock_freq * timescale);
-            ticks_per_clock = (f_ticks_per_clock < 2.0) ? 2ull : (uint64_t) f_ticks_per_clock;
-        }
+        inline const std::string& get_time_str() const { return time_str; }
+        inline const std::string& get_vcd_clock_ID() const { return vcd_clock_ID; }
 
-        // method to emit a VCD header
-        void emit_header(const std::string& version, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns) {
-            // make sure we are in a good state
-            check_state();
+        // return file open status
+        inline bool is_open() const { return file_is_open; }
 
+        // Method to set operating attributes (frequency and timescale)
+        void set_operating_point(const float freq, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns) {
             // convert time to string; save time scale period
-            std::string time_str;
             switch (time) {
             case TS_time::t1:   time_str = "1 ";   timescale = 1;   break;
             case TS_time::t10:  time_str = "10 ";  timescale = 10;  break;
@@ -140,19 +145,19 @@ namespace vcd {
             case TS_unit::fs:   time_str += "fs"; timescale *= 1e-15; break;
             }
 
-            // compute ticks per clock
+            // install clock rate and compute ticks/clock
+            clock_freq = freq;
             float f_ticks_per_clock = 1.0 / (clock_freq * timescale);
             ticks_per_clock = (f_ticks_per_clock < 2.0) ? 2ull : (uint64_t) f_ticks_per_clock;
-
-            // return as ascii string
-            *vcd_stream << "$date " << get_zulu_time() << "$end\n";
-            *vcd_stream << "$version " << version << " $end\n";
-            *vcd_stream << "$timescale " << time_str << " $end\n";
         }
 
-        // setter/getter for vcd_clock_ID
-        inline const std::string& get_vcd_clock_ID() const { return vcd_clock_ID; }
-        inline void set_vcd_clock_ID(const std::string id) { vcd_clock_ID = id; }
+        // method to emit a VCD header
+        void emit_header() {
+            check_state();
+            *vcd_stream << "$date " << get_zulu_time() << "$end\n";
+            *vcd_stream << "$version " << PV_VCD_VERSION << " $end\n";
+            *vcd_stream << "$timescale " << time_str << " $end\n";
+        }
 
         /*** VCD COMMENT EMIT ***/
         // comment block
@@ -187,43 +192,155 @@ namespace vcd {
         inline void emit_dumpend()  { check_state(); *vcd_stream << "$end" << std::endl; }
 
         // emit tick and clock changes
-        inline void emit_tick(const uint32_t clk_num, const bool is_posedge)
-            { check_state(); if (is_emitting_change) *vcd_stream << "#" << vcd_compute_tick(clk_num, is_posedge) << std::endl; }
-        inline void emit_clock(const bool is_x, const bool val)
-            { check_state(); if (is_emitting_change) *vcd_stream << (is_x ? "x" : (val ? "1" :"0")) << vcd_clock_ID << std::endl; }
+        inline void emit_pos_edge_tick(const uint32_t clk_num) {
+            check_state();
+            if (is_emitting_change)
+                *vcd_stream << "#" << clk_num * ticks_per_clock << std::endl;
+        }
+        inline void emit_neg_edge_tick(const uint32_t clk_num) {
+            check_state();
+            if (is_emitting_change)
+                *vcd_stream << "#" << clk_num * ticks_per_clock + (ticks_per_clock >> 1) << std::endl;
+        }
+        inline void emit_pos_edge_clock()
+            { check_state(); if (is_emitting_change) *vcd_stream << "1" << vcd_clock_ID << std::endl; }
+        inline void emit_neg_edge_clock()
+            { check_state(); if (is_emitting_change) *vcd_stream << "0" << vcd_clock_ID << std::endl; }
+        inline void emit_x_clock()
+            { check_state(); if (is_emitting_change) *vcd_stream <<  "x" << vcd_clock_ID << std::endl; }
 
         // signal emits
         inline void emit_change(const std::string& id, const int width, const std::string& value)
             { check_state(); if (is_emitting_change) *vcd_stream << value << (width > 1 ? " " : "") << id << std::endl; }
 
-        // return file open status
-        inline bool is_open() const { return file_is_open; }
-
         // setter/getter for is_emitting_change
         inline void set_emitting_change(const bool en) { is_emitting_change = en; }
         inline bool get_emitting_change() const { return is_emitting_change; }
 
+        // VCD definition
+        void vcd_definition(const Module* m, const bool define_clock = false) {
+            // Make sure file is open
+            check_state();
+
+            // enter new scope for module "m"; define clock if asked for.
+            this->emit_scope(m->name());
+            if (define_clock)
+                this->emit_vcd_clock_ID();
+
+            // dump local wires
+            umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
+            for ( ; w_range.first != w_range.second; w_range.first++)
+                const_cast<WireBase*>(w_range.first->second)->emit_vcd_definition(vcd_stream);
+
+            // dump local registers
+            umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
+            for ( ; r_range.first != r_range.second; r_range.first++)
+                const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_definition(vcd_stream);
+
+            // recursively dump any submodules
+            umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
+            for ( ; m_range.first != m_range.second; m_range.first++)
+                this->vcd_definition(m_range.first->second, false);
+
+            // exit current scope
+            this->emit_upscope();
+        }
+
+        // VCD dumpvars
+        void vcd_dumpvars(const Module* m) {
+            // Make sure file is open
+            check_state();
+
+            if (is_emitting_change) { 
+                // dump local wires
+                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
+                for ( ; w_range.first != w_range.second; w_range.first++)
+                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpvars(vcd_stream);
+
+                // dump local registers
+                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
+                for ( ; r_range.first != r_range.second; r_range.first++)
+                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpvars(vcd_stream);
+
+                // recursively dump any submodules
+                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
+                for ( ; m_range.first != m_range.second; m_range.first++)
+                    this->vcd_dumpvars(m_range.first->second);
+            }
+        }
+
+        // VCD dumpon
+        void vcd_dumpon(const Module* m) {
+            // Make sure file is open
+            check_state();
+
+            if (is_emitting_change) { 
+                // dump local wires
+                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
+                for ( ; w_range.first != w_range.second; w_range.first++)
+                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpon(vcd_stream);
+
+                // dump local registers
+                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
+                for ( ; r_range.first != r_range.second; r_range.first++)
+                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpon(vcd_stream);
+
+                // recursively dump any submodules
+                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
+                for ( ; m_range.first != m_range.second; m_range.first++)
+                    this->vcd_dumpon(m_range.first->second);
+            }
+        }
+
+        // VCD dumpoff
+        void vcd_dumpoff(const Module* m) {
+            // Make sure file is open
+            check_state();
+
+            if (is_emitting_change) { 
+                // dump local wires
+                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
+                for ( ; w_range.first != w_range.second; w_range.first++)
+                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpoff(vcd_stream);
+
+                // dump local registers
+                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
+                for ( ; r_range.first != r_range.second; r_range.first++)
+                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpoff(vcd_stream);
+
+                // recursively dump any submodules
+                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
+                for ( ; m_range.first != m_range.second; m_range.first++)
+                    this->vcd_dumpoff(m_range.first->second);
+            }
+        }
+
     private:
-        // fields defining the open stream
+        // Fields defining the open stream
         bool file_is_open;
         bool is_emitting_change;
         std::filebuf vcd_file;
         std::ostream* vcd_stream;
+
+        // Writer options
+        int32_t opt_vcd_start_clock;
+        int32_t opt_vcd_stop_clock;
 
         // timescale and clock frequency; timescale is per tick
         // ticks_per_clock = a minimum of 2 even if clock frequency and timescale imply otherwise
         float timescale;
         float clock_freq;
         uint64_t ticks_per_clock;
+        std::string time_str;
 
         // VCD clock ID
         std::string vcd_clock_ID;
 
         // method to check if object is ok to print
-        inline void check_state() {
+        inline void check_state() const {
             if (!file_is_open) {
-                std::string estr = "VCD_Writer: bad file stream.";
-                throw std::logic_error(estr);
+                std::string estr = "VCD writer: bad file stream.";
+                throw std::ios_base::failure(estr);
             }
         }
 
@@ -233,13 +350,6 @@ namespace vcd {
             time(&t);
             struct tm* tt = gmtime(&t);
             return asctime(tt);
-        }
-
-        // function to compute VCD tick number
-        inline uint64_t vcd_compute_tick(const uint32_t clk_num, const bool is_posedge) {
-            uint64_t tick_num = clk_num * ticks_per_clock;
-            if (!is_posedge) tick_num +=  ticks_per_clock >> 1;
-            return tick_num;
         }
     };
 

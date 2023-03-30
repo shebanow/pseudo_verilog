@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <string>
-#include "pv_global.h"
-#include "pv_module.h"
 
- #ifndef _PV_WIRES_H_
- #define _PV_WIRES_H_
+#ifndef _PV_WIRES_H_
+#define _PV_WIRES_H_
+
+// VCD class forward declaration
+ namespace vcd { class writer; }
 
 /*
  * Wire base class
@@ -31,8 +31,8 @@
  *      - name(): return non-hierarchical name of this wire.
  *      - instanceName(): return hierarchical name of this wire.
  *  Ties to Modules:
- *      - connect(): sensitize a Module to this wire.
- *      - disconnect(): desensitize a Module to this wire.
+ *      - sensitize(): sensitize a Module to this wire.
+ *      - desensitize(): desensitize a Module to this wire.
  *  Related to VCD dumps:
  *      - vcd_neg_edge_update(): emit changed values to VCD file; abstract method, implemented in subclass
  */
@@ -43,13 +43,14 @@ protected:
     WireBase(const Module* p, const char* str) : parent_module(p), wire_name(str) { constructor_common(); }
     WireBase(const Module* p, const std::string& nm) : parent_module(p), wire_name(nm) { constructor_common(); }
     virtual ~WireBase() {
-        wireList(this, true);
-        const_cast<Module*>(parent_module)->remove_wire_instance(this);
+        Module* m = const_cast<Module*>(parent_module);
+        m->global.dissociate_wire_in_module(this, parent_module);
+        m->global.wireList().erase(this);
+        m->global.desensitize_wire(this);
     }
 
 public:
     // General naming methods
-    inline const std::string typeName() const { return type_printer(*this); }
     const inline std::string name() const { return wire_name; }
     const std::string instanceName() const { 
         if (parent_module == NULL)
@@ -60,83 +61,47 @@ public:
         }
     }
 
-    // "connect" method: connects a module to wire (dependency)
-    // to avoid infinite recursion, this method should NOT be called by any method in the Module class
-    void connect(const Module* theModule) { add_module_connection(theModule); }
+    // Manually manage module sensitization.
+    void sensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.sensitize_to_wire(theModule, this); }
+    void desensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.desensitize_to_wire(theModule, this); }
 
-    // "disconnect" method: disconnects a module to wire (dependency)
-    // to avoid infinite recursion, this method should NOT be called by any method in the Module class
-    void disconnect(const Module* theModule) { remove_module_connection(theModule); }
+    // getter for width of wire
+    virtual const int get_width() const = 0;
 
     // VCD related
-    virtual void vcd_neg_edge_update() = 0;
-    virtual const int get_width() const = 0;
     std::string vcd_id_str;
-
-    // vcd definition/dump methods
-    virtual void vcd_definition() = 0;
-    virtual void vcd_dumpvars() const = 0;
-    virtual void vcd_dumpon() const = 0;
-    virtual void vcd_dumpoff() const = 0;
-
-    // Multi-purpose method to manage set of all declared Wires.
-    // (1) if chng == NULL, wireList remains unchanged.
-    // (2) if chng != NULL && !do_delete, "chng" is inserted into wireList
-    // (3) if chng != NULL && do_delete, "chng" is removed from wireList
-    // In all cases, a reference to a globally defined wireList is returned.
-    static std::set<const WireBase*>& wireList(const WireBase* chng = NULL, bool do_delete = false) {
-        static std::set<const WireBase*> wireList;
-
-        if (chng) {
-            if (do_delete) wireList.erase(chng);
-            else wireList.insert(wireList.end(), chng);
-        }
-        return wireList;
-    }
+    virtual void emit_vcd_definition(std::ostream* vcd_stream) = 0;
+    virtual void emit_vcd_dumpvars(std::ostream* vcd_stream) const = 0;
+    virtual void emit_vcd_dumpon(std::ostream* vcd_stream) const = 0;
+    virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
+    virtual void emit_vcd_neg_edge_update(std::ostream* vcd_stream) = 0;
 
 protected:
     // Parent module and name
     const Module* parent_module;
     const std::string wire_name;
 
-    // set of connected Modules
-    // std::set<const Module*> connections;
-
-    // function to iterate over connected modules and schedule them.
-    void schedule_connections() {
-        for (std::set<const Module*>::const_iterator it = connections.begin(); it != connections.end(); it++)
-            simulator::eval(*it);
+    // schedule modules based on sensitivity to this wire.
+    void schedule_sensitized_modules() {
+        set_m_data_t& runq = const_cast<Module*>(parent_module)->global.runq();
+        umm_wm_iter_pair_t range = const_cast<Module*>(parent_module)->global.trigger_wire_module().equal_range(this);
+        for ( ; range.first != range.second; range.first++)
+            runq.insert(runq.cend(), range.first->second);
     }
 
 private: 
-    // Class/function friends
-    friend class Module;            // TODO: is this needed?
-    friend int simulator::run();    // TODO: is this needed?
-
-    // add module connection
-    void add_module_connection(const Module* theModule) {
-        connections.insert(connections.end(), theModule);
-        const_cast<Module*>(theModule)->sensitize_module_to_wire(this);
-    }
-
-    // remove module connection
-    void remove_module_connection(const Module* theModule) {
-        connections.erase(theModule);
-        const_cast<Module*>(theModule)->desensitize_module_to_wire(this);
-    }
-
     // common constructor code
     void constructor_common() {
         // parent cannot be NULL
         assert(parent_module != NULL);
 
-        // add to wireList, Module instance list
-        wireList(this, false);
-        const_cast<Module*>(parent_module)->add_wire_instance(this);
+        // associate to parent module, add to global list of wires
+        const_cast<Module*>(parent_module)->global.associate_module_wire(parent_module, this);
+        const_cast<Module*>(parent_module)->global.wireList().insert(this);
 
         // initialize VCD ID
         std::stringstream ss;
-        ss << "@" << std::hex << simulator::vcd_id_count++;
+        ss << "@" << std::hex << parent_module->global.vcd_id_count()++;
         vcd_id_str = ss.str();
     }
 };
@@ -201,7 +166,7 @@ public:
         // If the value changed, update it, and then schedule updates to conections
         if (value != v) {
             value = v;
-            schedule_connections();
+            schedule_sensitized_modules();
         } 
         return *this;
     }
@@ -250,22 +215,22 @@ public:
     inline WireTemplateBase  operator++(int) { WireTemplateBase tmp = *this; ++value; return tmp; }
     inline WireTemplateBase  operator--(int) { WireTemplateBase tmp = *this; --value; return tmp; }
 
-    // vcd definition
-    void vcd_definition() 
-        { if (simulator::vcd_file) simulator::vcd_file->emit_definition("wire", width, vcd_id_str, wire_name); }
+    // VCD definition
+    void emit_vcd_definition(std::ostream* vcd_stream) const
+        { *vcd_stream << "$var wire " << width << " " << vcd_id_str << " " << wire_name << " $end" << std::endl; }
 
-    // vcd dump methods
-    void vcd_dumpvars() const
-        { if (simulator::vcd_file) simulator::vcd_file->emit_change(vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value)); }
-    void vcd_dumpon() const
-        { vcd_dumpvars(); }
-    void vcd_dumpoff() const
-        { if (simulator::vcd_file) simulator::vcd_file->emit_change(vcd_id_str, width, v2s->undefined()); }
+    // VCD dump methods
+    void emit_vcd_dumpvars(std::ostream* vcd_stream) const
+        { *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value)); }
+    void emit_vcd_dumpon(std::ostream* vcd_stream) const
+        { *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value)); }
+    void emit_vcd_dumpoff(std::ostream* vcd_stream) const
+        { *vcd_stream << (vcd_id_str, width, v2s->undefined()); }
 
     // VCD updates on negative edge of clock: if value has changed AND we are dumping VCD, print the change.
-    void vcd_neg_edge_update() {
-        if (simulator::vcd_file->get_emitting_change() && (is_x ? (is_x ^ was_x) : (was_x || value != old_value)))
-            simulator::vcd_file->emit_change(vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value));
+    void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
+        if (vcd_stream && (is_x ? (is_x ^ was_x) : (was_x || value != old_value)))
+            *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value));
         was_x = is_x;
         old_value = value;
     }
@@ -323,7 +288,7 @@ public:
         { constructor_common(p, nm.c_str(), NULL); }
     Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W)
         { constructor_common(p, nm.c_str(), &init); }
-    virtual ~Wire() { this->disconnect(this->parent_module); }
+    virtual ~Wire() { this->desensitize(this->parent_module); }
 
     // call superclass for assignment operator
     inline Wire& operator=(const T& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
@@ -332,10 +297,10 @@ private:
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
             // connect wire to its parent and optionally initialize
-            this->connect(p);
+            this->sensitize(p);
             if (init) {
                 this->value = *init;
-                this->schedule_connections();
+                this->schedule_sensitized_modules();
                 this->clear_x_states();
             }
         } else
@@ -361,7 +326,7 @@ public:
         { constructor_common(p, nm.c_str(), NULL); }
     Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
         { constructor_common(p, nm.c_str(), &init); }
-    virtual ~Input() { this->disconnect(this->parent_module); }
+    virtual ~Input() { this->desensitize(this->parent_module); }
 
     // call superclass for assignment operator
     inline Input& operator=(const T& value) { return (Input&) WireTemplateBase<T>::operator=(value); }
@@ -370,10 +335,10 @@ private:
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
             // connect input to its parent and optionally initialize
-            this->connect(p);
+            this->sensitize(p);
             if (init) {
                 this->value = *init;
-                this->schedule_connections();
+                this->schedule_sensitized_modules();
                 this->clear_x_states();
             }
         } else
@@ -401,9 +366,9 @@ public:
     Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
         { constructor_common(p, &init); }
     virtual ~Output() {
-        // If there is a grandparent, disconnect from it.
+        // If there is a grandparent, desensitize from it.
         if (this->parent_module->parent())
-            this->parent_module->parent()->desensitize_module_to_wire(this);
+            this->desensitize(this->parent_module->parent());
     }
         
 
@@ -415,12 +380,12 @@ private:
         if (p) {
             // if parent has a parent, connect the output to that grandparent
             if (p->parent())
-                p->parent()->sensitize_module_to_wire(this);
+                this->sensitize(p->parent());
 
             // If has an initializer, do that.
             if (init) {
                 this->value = *init;
-                this->schedule_connections();
+                this->schedule_sensitized_modules();
                 this->clear_x_states();
             }
         } else
@@ -428,4 +393,4 @@ private:
     }
 };
 
- #endif //  _PV_WIRES_H_
+#endif //  _PV_WIRES_H_

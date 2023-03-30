@@ -13,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <string>
-#include <set>
-#include "pv_global.h"
 
  #ifndef _PV_MODULE_H_
  #define _PV_MODULE_H_
@@ -58,45 +55,22 @@ public:
     Module(const Module* p, const std::string& str) : parent_module(p), nm(str) { constructor_common(); }
     Module(const Module* p, const char* str) : parent_module(p), nm(str) { constructor_common(); }
     virtual ~Module() {
-        // TODO: this needs to be fixed.
         // If module has a parent, disconnect instance of this from that parent and desensitize outputs
         if (parent_module) {
-            // global.
-            const_cast<Module*>(parent_module)->moduleInstanceDB.erase(parent_module, this);
+            global.dissociate_child_in_parent(parent_module, this);
             for (std::set<const WireBase*>::const_iterator it = output_list.begin(); it != output_list.end(); it++)
                 global.desensitize_to_wire(parent_module, *it);
         }
 
-        // For all submodules instanced by this module, remove the relationship.
-        // (This loop should not execute if destructors in submodules work correctly.)
-        UMM_pair_t<const Module*, const Module*> module_range = moduleInstanceDB.find_all_lr(this);
-        for (UMM_iter_t<const Module*, const WireBase*> it = module_range.first; it != module_range.second; it++)
-            moduleInstanceDB.erase(this, it->second);
-
-        // For all wires instanced by this module, remove instance relationship.
-        // (This loop should not execute if destructors in wires work correctly.)
-        UMM_pair_t<const Module*, const WireBase*> wire_range = wireInstanceDB.find_all_lr(this);
-        for (UMM_iter_t<const Module*, const WireBase*> it = wire_range.first; it != wire_range.second; it++)
-            wireInstanceDB.erase(this, it->second);
-
-        // For all wires sensitizing this module, remove connection relationship.
-        wire_range = wireConnectionDB.find_all_rl(this);
-        for (UMM_iter_t<const Module*, const WireBase*> it = wire_range.first; it != wire_range.second; it++)
-            wireConnectionDB.erase(it->second, this);
-
-        // For all registers instanced by this module, remove
-        // (This loop should not execute if destructors in registers work correctly.)
-        UMM_pair_t<const Module*, const RegisterBase*> module_register_range = registerInstanceDB.find_all_lr(this);
-        for (UMM_iter_t<const Module*, const RegisterBase*> it = module_register_range.first; it != module_register_range.second; it++)
-            registerInstanceDB.erase(this, it->second);
-
-        // For all registers sensitizing this module, remove connection relationship.
-        module_register_range = registerConnectionDB.find_all_rl(this);
-        for (UMM_iter_t<const Module*, const RegisterBase*> it = module_register_range.first; it != module_register_range.second; it++)
-            registerConnectionDB.erase(it->second, this);
+        // For all submodules instanced by this module, remove wire/register relationships.
+        global.dissociate_all_children_in_parent(this);
+        global.dissociate_all_wires_in_module(this);
+        global.desensitize_all_wires_to_module(this);
+        global.dissociate_all_registers_in_module(this);
+        global.desensitize_all_registers_to_module(this);
 
         // Remove from RUNQ if there
-        runq.erase(this);
+        global.runq().erase(this);
     }
 
     // Required implementation: called to update the module upon change in its sensitivity lists
@@ -104,7 +78,6 @@ public:
     virtual void eval() = 0;
 
     // Getters for type, name and instance name.
-    // inline const std::string typeName() const { return type_printer(*this); }
     inline const std::string name() const { return nm; }
     const std::string instanceName() const {
         if (!parent_module)
@@ -130,17 +103,18 @@ public:
 
     // TODO: do we still want to emply a set here?
     // connect/disconnect output, connect output list
-    inline void connect_output(const WireBase* output) const { static_cast<std::set<const WireBase*> >(output_list).insert(output); }
-    inline void disconnect_output(const WireBase* output) const { static_cast<std::set<const WireBase*> >(output_list).erase(output); }
+    inline void connect_output(const WireBase* output) { output_list.insert(output); }
+    inline void disconnect_output(const WireBase* output) { output_list.erase(output); }
+
+protected:
+    // This instances a global data structure (class statics)
+    global_data_t global;
 
 private:
     // Friend classes
     friend class WireBase;
     friend class RegisterBase;
     friend class vcd::writer;
-
-    // This instances a global data structure (class statics)
-    global_data_t global;
 
     // output list
     std::set<const WireBase*> output_list;
@@ -151,48 +125,11 @@ private:
     // module instance name
     const std::string nm;
 
-    // Wire instance registration/deregistration
-    inline void add_wire_instance(const WireBase* wire)
-        { wireInstanceDB.insert(this, wire); }
-    inline void remove_wire_instance(const WireBase* wire)
-        { wireInstanceDB.erase(this, wire); }
-
-    // Schedule Modules dependent on a wire changing
-    void schedule_wire_module_update(const WireBase* theWire) {
-        UMM_pair_t<const WireBase*, const Module*> wire_module_range = wireConnectionDB.find_all_rl(theWire);
-        for (UMM_iter_t<const WireBase*, const Module*> it = wire_module_range.first; it != wire_module_range.second; it++)
-            runq.insert(it->second);
-    }
-
-    // Register instance registration/deregistration
-    inline void add_register_instance(const RegisterBase* reg)
-        { registerInstanceDB.insert(this, reg); }
-    inline void remove_register_instance(const RegisterBase* reg)
-        { registerInstanceDB.erase(this, reg); }
-
-    // Schedule Modules dependent on a register changing
-    void schedule_register_module_update(const RegisterBase* theRegister) {
-        UMM_pair_t<const RegisterBase*, const Module*> register_module_range = registerConnectionDB.find_all_rl(theRegister);
-        for (UMM_iter_t<const RegisterBase*, const Module*> it = module_register_range.first; it != module_register_range.second; it++)
-            runq.insert(it->second);
-    }
-
-    // Register connection deregistration.
-    void remove_register_sensitization(const RegisterBase* theRegister) {
-        UMM_pair_t<const RegisterBase*, const Module*> register_module_range = registerConnectionDB.find_all_rl(theRegister);
-        for (UMM_iter_t<const RegisterBase*, const Module*> it = register_module_range.first; it != register_module_range.second; it++)
-            registerConnectionDB.erase(it->second, this);
-    }
-
-    // TODO: this is buggy: base class constructor called before subclass => there are no outputs when the constructor is called,
-    // as the subclass constructor is what creates outputs. What we really want is the wire class for Output should auto add itsef to the 
-    // grandparent => this constructor does nothing in that regard.
     // constructor common code
     void constructor_common() {
-        this->connect_outputs_to_parent();
         if (parent_module) {
             // Relate parent to child (aka this).
-            global.insert_parent_child(parent_module, this);
+            global.associate_parent_child(parent_module, this);
 
             // Sensitize parent to outputs of this module.
             for (std::set<const WireBase*>::const_iterator it = output_list.begin(); it != output_list.end(); it++)

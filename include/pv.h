@@ -13,6 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <ios>
+#include <set>
+#include <unordered_map>
+#include <algorithm>
+#include <utility>
+#include <string>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 #ifndef _PV_H_
 #define _PV_H_
