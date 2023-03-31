@@ -1,3 +1,5 @@
+NOTE: this doc is out of date and needs revision!
+
 # The Pseudo-Verilog Header-only Library
 
 Verilog-like C++ simulation infrastructure for hardware design.
