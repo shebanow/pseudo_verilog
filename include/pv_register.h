@@ -17,7 +17,36 @@
  #ifndef _PV_REGISTER_H_
  #define _PV_REGISTER_H_
 
-namespace vcd { class writer; }     // forward declaration
+/*
+ * 
+ * This header defines a class and a subclass:
+ *
+ *        ┌─────────────────────────┐
+ *        │      RegisterBase       │
+ *        └────────────┬────────────┘
+ *                     │             
+ *        ┌────────────▼────────────┐
+ *        │ RegisterTemplateBase<T> │
+ *        └─────────────────────────┘
+ * 
+ * The superclass RegisterBase is at the top of the hierarchy. It provides the basis register types:
+ * its instance name (local and global), means to sensitize/desensitize this register to a Module, and
+ * support for VCD dumps on a register. It's not a template class so as to allow all register instances to be
+ * grouped in a single global database as well as allow iteration across all register instances.
+ *
+ * Below that is a templated base class, RegisterTemplateBase whose type is T. All generic operator overloads
+ * are implemented in this subclass. In addition, means to get register state/set register state are included along
+ * with trigger propogation to all connected modules. Lastly, VCD change detection support is also included.
+ * Register state itself is represented using a pair of "source" (aka "master") and "replica" (aka "slave")
+ * states (and mirrored with Boolean "x_" values to represent X states). On a positive edge of clock, the
+ * source states are copied into the replica states, and if a state change occur, modules sensitized to a
+ * register are triggered for eval() scheduling. Operator overloads are also implemented in this subclass.
+ * Of note: classical assignments ('=') are disabled and replaced with the '<=' operator to echo a non-blocking
+ * assignment in Verilog.
+ */
+
+// Forward declaration.
+namespace vcd { class writer; } 
 
 /*
  * RegisterBase base class.
@@ -30,7 +59,6 @@ namespace vcd { class writer; }     // forward declaration
  *
  * Public methods in this class:
  *  General naming:
- *      - typeName(): returns type of register as a string
  *      - name(): returns instance name as a string
  *      - instanceName(): returns hierarchical instance name as a string
  *  Module sensitivity:
@@ -44,26 +72,25 @@ namespace vcd { class writer; }     // forward declaration
 
 class RegisterBase {
 protected:
-    // Constructor/Destructor
+    // Constructors/Destructor.
     RegisterBase(const Module* p, const char* str) : parent_module(p), global(const_cast<Module*>(p)->global), reg_name(str)
         { constructor_common(); }
     RegisterBase(const Module* p, const std::string& str) : parent_module(p), global(const_cast<Module*>(p)->global), reg_name(str)
         { constructor_common(); }
     virtual ~RegisterBase() {
-        Module* m = const_cast<Module*>(parent_module);
-        m->global.dissociate_register_in_module(this, parent_module);
-        m->global.registerList().erase(this);
-        m->global.desensitize_register(this);
+        global.dissociate_register_in_module(this, parent_module);
+        global.registerList().erase(this);
+        global.desensitize_register(this);
     }
 
-    // parent Module instance
+    // Parent Module instance.
     const Module* parent_module;
 
-    // bit width of this register
+    // Bit width of this register.
     int width;
 
 public: 
-    // Type, name and instance name getters
+    // Type, name and instance name getters.
     inline const std::string name() const { return reg_name; }
     const std::string instanceName() const {
         if (parent_module == NULL) return reg_name;
@@ -75,19 +102,19 @@ public:
     }
 
     // Manually manage module sensitization.
-    void sensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.sensitize_to_register(theModule, this); }
-    void desensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.desensitize_to_register(theModule, this); }
+    void sensitize(const Module* theModule) { global.sensitize_to_register(theModule, this); }
+    void desensitize(const Module* theModule) { global.desensitize_to_register(theModule, this); }
 
     // How to clock this register, to be overridden by subclass
     virtual void pos_edge(std::ostream* vcd_stream) = 0;
 
-    // Getter for parent
+    // Getter for parent.
     const Module* parent() const { return parent_module; }
 
-    // Getter for width (in bits)
+    // Getter for width (in bits).
     virtual const int get_width() const = 0;
 
-    // VCD related
+    // VCD related.
     std::string vcd_id_str;
     virtual void emit_vcd_definition(std::ostream* vcd_stream) = 0;
     virtual void emit_vcd_dumpvars(std::ostream* vcd_stream) const = 0;
@@ -95,27 +122,28 @@ public:
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
 
 protected:
-    // saving a reference from the parent module.
+    // Saving a reference from the parent module (initialized by constructor).
     global_data_t& global;
 
 private:
-    // Friend classes
+    // Friend classes.
     friend class Module; 
     friend class vcd::writer;
 
-    // Register name
+    // Register name.
     const std::string reg_name;
 
-    // common constuctor code
+    // Common constuctor code.
     void constructor_common() {
-        // parent cannot be NULL
+        // Parent cannot be NULL.
         assert(parent_module != NULL);
 
-        // associate to parent module, add to global list of wires
+        // Associate to parent module, add to global list of wires, and auto-sensitize parent.
         global.associate_module_register(parent_module, this);
         global.registerList().insert(this);
+        global.sensitize_to_register(parent_module, this);
 
-        // initialize VCD ID
+        // Initialize VCD ID.
         std::stringstream ss;
         ss << "@" << std::hex << global.vcd_id_count()++;
         vcd_id_str = ss.str();
@@ -123,7 +151,7 @@ private:
 };
 
 /*
- * @brief Register template class.
+ * Register template class.
  * This is a container for registers (flip-flops). Linkages between instances
  * of this class are maintained by the RegisterBase superclass. This class implements
  * the getter (from the T replica), the setter (to the T source), a clock edge 
@@ -161,7 +189,7 @@ private:
 template <typename T, int W = -1>
 class Register final : public RegisterBase {
 public:
-    // Constructor/Destructor
+    // Constructors/Destructor.
     Register(const Module* p, const char* str) : RegisterBase(p, str)
         { constructor_common(p, str, NULL); }
     Register(const Module* p, const char* str, const T& init) : RegisterBase(p, str)
@@ -172,7 +200,7 @@ public:
         { constructor_common(p, str.c_str(), &init); }
     virtual ~Register() { if (is_default_printer) delete v2s; }
 
-    // Getter
+    // Getters.
     inline operator T() const { return replica; }
     inline T& d() { return source; }
     inline T& q() { return replica; }
@@ -184,25 +212,25 @@ public:
         return *this;
     }
 
-    // width setter/getter
+    // Width setter/getter.
     void set_width(const int wv) { width = wv; }
     const int get_width() const { return width; }
 
-    // X state setters/getters
+    // X state setters/getters.
     inline bool value_is_x() const { return replica_x; }
     inline bool value_will_be_x() const { return source_x; }
     inline void set_x_value(const bool nx) { source_x = nx; }
     inline void clear_x_states() { source_x = replica_x = false; }
     inline void assign_x() { source_x = true; }
 
-    // VCD string printer setter
+    // VCD string printer setter.
     void set_vcd_string_printer(const vcd::value2string_t<T>* p) { 
         if (is_default_printer) delete v2s;
         v2s = p;
         is_default_printer = false;
     }
 
-    // Disallow op-assignments
+    // Disallow op-assignments.
     Register& operator+=(const T& v) = delete;
     Register& operator-=(const T& v) = delete;
     Register& operator*=(const T& v) = delete;
@@ -218,11 +246,9 @@ public:
     Register& operator++(int) = delete;
     Register& operator--(int) = delete;
 
-    // vcd definition
+    // VCD methods.
     void emit_vcd_definition(std::ostream* vcd_stream)
         { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << " $end" << std::endl; }
-
-    // vcd dump methods
     void emit_vcd_dumpvars(std::ostream* vcd_stream) const
         { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     void emit_vcd_dumpon(std::ostream* vcd_stream) const
@@ -231,20 +257,18 @@ public:
         { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
 private:
-    /*
-     * In order to follow more PC conventions, the term master/slave is replaced with the
-     * MYSQL terminology (see https://en.wikipedia.org/wiki/Master/slave_(technology)).
-     */
+    // In order to follow more PC conventions, the term master/slave is replaced with the
+    // MYSQL terminology (see https://en.wikipedia.org/wiki/Master/slave_(technology)).
     T source;       // was "master"
     T replica;      // was "slave"
     bool source_x;
     bool replica_x;
 
-    // vcd string printer
+    // VCD string printer.
     vcd::value2string_t<T>* v2s;
     bool is_default_printer;
 
-    // implement a clock edge on this register
+    // Implement a positive clock edge on this register.
     inline void pos_edge(std::ostream* vcd_stream) {
         if (replica_x ? (replica_x ^ source_x) : (source_x || replica != source)) {
             // If VCD change dump is enabled, do so.
@@ -261,21 +285,21 @@ private:
         replica_x = source_x;
     }
 
-    // common code for all constructors
+    // Common code for all constructors.
     void constructor_common(const Module* p, const char* str, const T* init) {
-        // error checking
+        // Error checking.
         if (!p)
             throw std::invalid_argument("Register must be declared inside a module");
 
-        // save bit width
+        // Save bit width.
         this->width = (W > 0) ? W : vcd::bitwidth<T>();
 
-        // create VCD string printer
+        // Create default VCD string printer.
         v2s = new vcd::value2string_t<T>(replica); 
         v2s->set_width(this->width);
         is_default_printer = true;
 
-        // connect to parent and optionally initialize
+        // Connect to parent and optionally initialize.
         global.sensitize_to_register(parent_module, this);
         if (init) {
             replica = source = *init;

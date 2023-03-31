@@ -17,51 +17,55 @@
 #ifndef _PV_VCD_H_
 #define _PV_VCD_H_
 
+/*
+ * A VCD file is generated in 4 phases:
+ *  A. Header is dumped.
+ *  B. Signal hirearchy is dumped.
+ *  C. Initial $dumpvars at tick #0.
+ *  D. Signal dumping per the upcoming timing diagram.
+ *
+ * VCD signal change are generated according to the following timing diagram:
+ *
+ *     ┌──────────────────────────────────────┐                                       ┌────
+ *     │                                      │                                       │    
+ * ────┘                                      └───────────────────────────────────────┘    
+ *     ▲    ▲           ▲                     ▲                                            
+ *     │    │           │                     │                                            
+ *     │    │ ─ ─ ─ ─ ─ │                     │                                            
+ *     │    │           │                     │                                            
+ *    .─.  .─.         .─.                   .─.                                           
+ *   ( 1 )( 2 )       ( 3 )                 ( 4 )                                          
+ *    `─'  `─'         `─'                   `─'                                           
+ *
+ * At top, there is the master clock signal. Four events are then labled:
+ *  1. The rising edge of clock is generated. This is emitted to the VCD file assuming we are dumping signals.
+ *  2. The simulator is clocked, theerby forcing updates of all registers. And registers whose state changes are dumped.
+ *  3. Register changes then force potential wire changes. When these quiesce, any wires changing value are dumped.
+ *  4. The falling edge of clock is generated and emitted to the VCD. All wire change "mousetraps" are reset.
+ *
+ * Since dumping can be enabled for disabled at specified clock boundaries, event 4 is augmented:
+ *  - If VCD dump is enabled at clock #SS, in clock (SS-1) we do a "$dumpon" at event 4.
+ *  - Similarly, if VCD dumps are disabled at clock #ST, in clock ST the falling edge of clock is emitted, we do a "$dumpoff"
+ * If VCD dump start/stop times are unspecified, one or both "$dumpon" and/or "$dumpoff" might be omitted.
+ *
+ * This header implements a "writer" class in the "vcd" namespace that is used by simulators to create and write
+ * VCD files.
+ */
+
+// Update this macro as needed for signficant release changes to this header.
 #define PV_VCD_VERSION "PseudoVerilog vcd::writer 1.0"
 
-// enter VCD namespace
+// Enter VCD namespace.
 namespace vcd {
 
-    /*
-     * A VCD file is generated in 4 phases:
-     *  A. Header is dumped.
-     *  B. Signal hirearchy is dumped.
-     *  C. Initial $dumpvars at tick #0.
-     *  D. Signal dumping per the upcoming timing diagram.
-     *
-     * VCD signal change are generated according to the following timing diagram:
-     *
-     *     ┌──────────────────────────────────────┐                                       ┌────
-     *     │                                      │                                       │    
-     * ────┘                                      └───────────────────────────────────────┘    
-     *     ▲    ▲           ▲                     ▲                                            
-     *     │    │           │                     │                                            
-     *     │    │ ─ ─ ─ ─ ─ │                     │                                            
-     *     │    │           │                     │                                            
-     *    .─.  .─.         .─.                   .─.                                           
-     *   ( 1 )( 2 )       ( 3 )                 ( 4 )                                          
-     *    `─'  `─'         `─'                   `─'                                           
-     *
-     * At top, there is the master clock signal. Four events are then labled:
-     *  1. The rising edge of clock is generated. This is emitted to the VCD file assuming we are dumping signals.
-     *  2. The simulator is clocked, theerby forcing updates of all registers. And registers whose state changes are dumped.
-     *  3. Register changes then force potential wire changes. When these quiesce, any wires changing value are dumped.
-     *  4. The falling edge of clock is generated and emitted to the VCD. All wire change "mousetraps" are reset.
-     *
-     * Since dumping can be enabled for disabled at specified clock boundaries, event 4 is augmented:
-     *  - If VCD dump is enabled at clock #SS, in clock (SS-1) we do a "$dumpon" at event 4.
-     *  - Similarly, if VCD dumps are disabled at clock #ST, in clock ST the falling edge of clock is emitted, we do a "$dumpoff"
-     * If VCD dump start/stop times are unspecified, one or both "$dumpon" and/or "$dumpoff" might be omitted.
-     */
-
-    // enum class for timescale
+    // Enum class for timescale.
     enum class TS_time {
         t1 = 0,         // == 1
         t10,            // == 10
         t100            // == 100
     };
 
-    // enum class for time units
+    // Enum class for time units.
     enum class TS_unit {
         s = 0,          // seconds  (10^0)
         ms,             // msec     (10^-3)
@@ -71,12 +75,12 @@ namespace vcd {
         fs              // fsec     (10^-15)
     };
 
-    // VCD writer class
+    // VCD writer class.
     class writer {
     public:
-        // Constructor: creates VCD stream (or sets error flag for object)
+        // Constructor: creates VCD stream (or sets error flag for object).
         writer(const std::string& file_name) {
-            // attempt to open file and create a stream for it
+            // Attempt to open file and create a stream for it.
             if (!vcd_file.open(file_name, std::ios::out)) {
                 std::cerr << "File " << file_name << ": " << strerror(errno);
                 file_is_open = false;
@@ -86,21 +90,21 @@ namespace vcd {
             }
             is_emitting_change = true;
 
-            // Set default VCD options
+            // Set default VCD options.
             opt_vcd_start_clock = -1;
             opt_vcd_stop_clock = -1;
 
-            // init timescale, clock rate, and ticks
+            // Init timescale, clock rate, and ticks.
             timescale = 1.0;
             clock_freq = 1.0;
             ticks_per_clock = 2ull;
             time_str = "1 s";
 
-            // init vcd_clock_ID; default value
+            // Init vcd_clock_ID; default value.
             vcd_clock_ID = "*@";
         }
 
-        // Destructor: closes file
+        // Destructor: closes file.
         virtual ~writer() {
             if (file_is_open) {
                 vcd_file.close();
@@ -108,14 +112,14 @@ namespace vcd {
             }
         }
 
-        // Class setters
+        // Class setters.
         inline void set_vcd_start_clock(const int32_t v) { opt_vcd_start_clock = v; }
         inline void set_vcd_stop_clock(const int32_t v) { opt_vcd_stop_clock = v; }
         inline const int32_t get_vcd_start_clock() { return opt_vcd_start_clock; }
         inline const int32_t get_vcd_stop_clock() { return opt_vcd_stop_clock; }
         inline void set_vcd_clock_ID(const std::string id) { vcd_clock_ID = id; }
 
-        // Class getters
+        // Class getters.
         inline std::ostream* get_stream() { return vcd_stream; }
         inline float get_timescale() const { return timescale; }
         inline float get_clock_freq() const { return clock_freq; }
@@ -123,19 +127,19 @@ namespace vcd {
         inline const std::string& get_time_str() const { return time_str; }
         inline const std::string& get_vcd_clock_ID() const { return vcd_clock_ID; }
 
-        // return file open status
+        // Return file open status.
         inline bool is_open() const { return file_is_open; }
 
-        // Method to set operating attributes (frequency and timescale)
+        // Method to set operating attributes (frequency and timescale).
         void set_operating_point(const float freq, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns) {
-            // convert time to string; save time scale period
+            // Convert time to string; save time scale period.
             switch (time) {
             case TS_time::t1:   time_str = "1 ";   timescale = 1;   break;
             case TS_time::t10:  time_str = "10 ";  timescale = 10;  break;
             case TS_time::t100: time_str = "100 "; timescale = 100; break;
             }
 
-            // convert unit to string; update time scale period
+            // Convert unit to string; update time scale period.
             switch (unit) {
             case TS_unit::s:    time_str += "s";  break;
             case TS_unit::ms:   time_str += "ms"; timescale *= 1e-3;  break;
@@ -145,13 +149,13 @@ namespace vcd {
             case TS_unit::fs:   time_str += "fs"; timescale *= 1e-15; break;
             }
 
-            // install clock rate and compute ticks/clock
+            // Install clock rate and compute ticks/clock.
             clock_freq = freq;
             float f_ticks_per_clock = 1.0 / (clock_freq * timescale);
             ticks_per_clock = (f_ticks_per_clock < 2.0) ? 2ull : (uint64_t) f_ticks_per_clock;
         }
 
-        // method to emit a VCD header
+        // Method to emit a VCD header.
         void emit_header() {
             check_state();
             *vcd_stream << "$date " << get_zulu_time() << "$end\n";
@@ -160,38 +164,38 @@ namespace vcd {
         }
 
         /*** VCD COMMENT EMIT ***/
-        // comment block
+        // Comment block.
         inline void emit_comment(const std::string& comment) 
             { check_state(); *vcd_stream << "$comment" << std::endl << comment << std::endl << "$end" << std::endl; }
 
         /*** VCD HEADER EMITS ***/
-        // scope/upscope
+        // Scope/upscope.
         inline void emit_scope(const std::string& module_name)
             { check_state(); *vcd_stream << "$scope module " << module_name << " $end" << std::endl; }
         inline void emit_upscope()
             { check_state(); *vcd_stream << "$upscope $end" << std::endl; }
 
-        // wire/register defines
+        // Wire/register defines.
         inline void emit_definition(const std::string& type, const int width, const std::string& vcd_ID, const std::string& name)
             { check_state(); *vcd_stream << "$var " << type << " " << width << " " << vcd_ID << " " << name << " $end" << std::endl; }
 
-        // emit vcd_clock_ID
+        // Emit vcd_clock_ID.
         inline void emit_vcd_clock_ID()
             { check_state(); *vcd_stream << "$var wire 1 " << vcd_clock_ID << " clk $end\n"; }
 
-        // end definitons
+        // End definitons.
         inline void emit_end_definitions()
             { check_state(); *vcd_stream << "$enddefinitions $end" << std::endl; }
 
         /*** VCD CHANGE DUMP EMITS ***/
-        // dump commands
+        // Dump commands.
         inline void emit_dumpall()  { check_state(); *vcd_stream << "$dumpall" << std::endl; }
         inline void emit_dumpoff()  { check_state(); *vcd_stream << "$dumpoff" << std::endl; }
         inline void emit_dumpon()   { check_state(); *vcd_stream << "$dumpon" << std::endl; }
         inline void emit_dumpvars() { check_state(); *vcd_stream << "$dumpvars" << std::endl; }
         inline void emit_dumpend()  { check_state(); *vcd_stream << "$end" << std::endl; }
 
-        // emit tick and clock changes
+        // Emit tick and clock changes.
         inline void emit_pos_edge_tick(const uint32_t clk_num) {
             check_state();
             if (is_emitting_change)
@@ -209,106 +213,106 @@ namespace vcd {
         inline void emit_x_clock()
             { check_state(); if (is_emitting_change) *vcd_stream <<  "x" << vcd_clock_ID << std::endl; }
 
-        // signal emits
+        // Signal emits.
         inline void emit_change(const std::string& id, const int width, const std::string& value)
             { check_state(); if (is_emitting_change) *vcd_stream << value << (width > 1 ? " " : "") << id << std::endl; }
 
-        // setter/getter for is_emitting_change
+        // Setter/getter for is_emitting_change.
         inline void set_emitting_change(const bool en) { is_emitting_change = en; }
         inline bool get_emitting_change() const { return is_emitting_change; }
 
-        // VCD definition
+        // VCD definition.
         void vcd_definition(const Module* m, const bool define_clock = false) {
-            // Make sure file is open
+            // Make sure file is open.
             check_state();
 
-            // enter new scope for module "m"; define clock if asked for.
+            // Enter new scope for module "m"; define clock if asked for.
             this->emit_scope(m->name());
             if (define_clock)
                 this->emit_vcd_clock_ID();
 
-            // dump local wires
+            // Dump local wires.
             umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
             for ( ; w_range.first != w_range.second; w_range.first++)
                 const_cast<WireBase*>(w_range.first->second)->emit_vcd_definition(vcd_stream);
 
-            // dump local registers
+            // Dump local registers.
             umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
             for ( ; r_range.first != r_range.second; r_range.first++)
                 const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_definition(vcd_stream);
 
-            // recursively dump any submodules
+            // Recursively dump any submodules.
             umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
             for ( ; m_range.first != m_range.second; m_range.first++)
                 this->vcd_definition(m_range.first->second, false);
 
-            // exit current scope
+            // Exit current scope.
             this->emit_upscope();
         }
 
-        // VCD dumpvars
+        // VCD dumpDars.
         void vcd_dumpvars(const Module* m) {
-            // Make sure file is open
+            // Make sure file is open.
             check_state();
 
             if (is_emitting_change) { 
-                // dump local wires
+                // Dump local wires.
                 umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
                 for ( ; w_range.first != w_range.second; w_range.first++)
                     const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpvars(vcd_stream);
 
-                // dump local registers
+                // Dump local registers.
                 umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
                 for ( ; r_range.first != r_range.second; r_range.first++)
                     const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpvars(vcd_stream);
 
-                // recursively dump any submodules
+                // Recursively dump any submodules.
                 umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
                 for ( ; m_range.first != m_range.second; m_range.first++)
                     this->vcd_dumpvars(m_range.first->second);
             }
         }
 
-        // VCD dumpon
+        // VCD dumpon.
         void vcd_dumpon(const Module* m) {
-            // Make sure file is open
+            // Make sure file is open.
             check_state();
 
             if (is_emitting_change) { 
-                // dump local wires
+                // Dump local wires.
                 umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
                 for ( ; w_range.first != w_range.second; w_range.first++)
                     const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpon(vcd_stream);
 
-                // dump local registers
+                // Dump local registers.
                 umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
                 for ( ; r_range.first != r_range.second; r_range.first++)
                     const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpon(vcd_stream);
 
-                // recursively dump any submodules
+                // Recursively dump any submodules.
                 umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
                 for ( ; m_range.first != m_range.second; m_range.first++)
                     this->vcd_dumpon(m_range.first->second);
             }
         }
 
-        // VCD dumpoff
+        // VCD dumpoff.
         void vcd_dumpoff(const Module* m) {
-            // Make sure file is open
+            // Make sure file is open.
             check_state();
 
             if (is_emitting_change) { 
-                // dump local wires
+                // Dump local wires.
                 umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
                 for ( ; w_range.first != w_range.second; w_range.first++)
                     const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpoff(vcd_stream);
 
-                // dump local registers
+                // Dump local registers.
                 umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
                 for ( ; r_range.first != r_range.second; r_range.first++)
                     const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpoff(vcd_stream);
 
-                // recursively dump any submodules
+                // Recursively dump any submodules.
                 umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
                 for ( ; m_range.first != m_range.second; m_range.first++)
                     this->vcd_dumpoff(m_range.first->second);
@@ -316,27 +320,27 @@ namespace vcd {
         }
 
     private:
-        // Fields defining the open stream
+        // Fields defining the open stream.
         bool file_is_open;
         bool is_emitting_change;
         std::filebuf vcd_file;
         std::ostream* vcd_stream;
 
-        // Writer options
+        // Writer options.
         int32_t opt_vcd_start_clock;
         int32_t opt_vcd_stop_clock;
 
-        // timescale and clock frequency; timescale is per tick
-        // ticks_per_clock = a minimum of 2 even if clock frequency and timescale imply otherwise
+        // timescale and clock frequency; timescale is per tick.
+        // ticks_per_clock = a minimum of 2 even if clock frequency and timescale imply otherwise.
         float timescale;
         float clock_freq;
         uint64_t ticks_per_clock;
         std::string time_str;
 
-        // VCD clock ID
+        // VCD clock ID.
         std::string vcd_clock_ID;
 
-        // method to check if object is ok to print
+        // Method to check if object is ok to print.
         inline void check_state() const {
             if (!file_is_open) {
                 std::string estr = "VCD writer: bad file stream.";
@@ -344,7 +348,7 @@ namespace vcd {
             }
         }
 
-        // method to emit current time (Zulu); utility only
+        // Method to emit current time (Zulu); utility only.
         char* get_zulu_time() {
             time_t t; 
             time(&t);
@@ -353,6 +357,6 @@ namespace vcd {
         }
     };
 
-} // end namespace vcd
+} // End namespace vcd.
 
 #endif //  _PV_VCD_H_

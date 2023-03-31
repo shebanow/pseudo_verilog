@@ -18,46 +18,34 @@
  #ifndef _PV_BITWIDTH_H_
  #define _PV_BITWIDTH_H_
 
-// enter VCD namespace
+/*
+ * The bitwidth class is used to determine the width in bits of a particular data type.
+ * Note: users can extend the class through other partial specializations of the template base class.
+ * Typically required when computing the bit width of custom data types.
+ * The VCD namespace is used for the bitwidth class as usage is related to dumping VCD files.
+ */
+
 namespace vcd {
 
-    // template class and template function used to determine a number of HW bits based on a type.
+    // Template class and template function used to determine a number of HW bits based on a type.
     template <typename T>
-    extern int bitwidth();    // fwd declaration
+    extern int bitwidth();    
 
-    // generic type inference.
+    // Generic type inference.
     template <typename T>
     struct _bitwidth {
         _bitwidth() : width(sizeof(T) << 3) {}
         const int width;
     }; 
 
-    // T is bool
+    // T is bool.
     template <>
     struct _bitwidth<bool> {
         _bitwidth() : width(1) {}
         const int width;
     };
 
-/*
-    TODO: should remain in fmod.
-
-    // T is a type of fixed_point_base_t
-    template <int M, int N>
-    struct _bitwidth<fixed_point_t<M,N> > {
-        _bitwidth() : width(M + N) {}
-        const int width;
-    };
-
-    // T is a type of complex_t
-    template <typename U>
-    struct _bitwidth<complex_t<U> > {
-        _bitwidth() : width(bitwidth<U>() << 1) {}
-        const int width;
-    };
-*/
-
-    // template function to return # of bits in a type through type inference
+    // Template function to return # of bits in a type through type inference
     template <typename T>
     inline int bitwidth() {
         _bitwidth<T> bw;

@@ -18,9 +18,35 @@
 #define _PV_GLOBAL_H_
 
 /*
- * Forward references
+ * The "global data" class is employed as a general database for otehr classes in the pseudo-verilog package.
+ * As the pseudo-verilog package is header-only, this class plays a trick to instantiate static data within
+ * a static function so as to get BSS data allocation to be done by the compiler instead of requiring source code
+ * to do that instantiation (and thus require a compile and library (.so or equivalent)). 
+ *
+ * This header includes a number of typedefs to help with later usage of the header. Naming:
+ * - For all but "pair" definitions, a prefix identifies the type of the field. Decoder ring:
+ *      - "set" = std::set<T>
+ *      - "umm" = std::unordered_multimap<K, V>
+ *      - "um"  = std::unordered_map<K, V>
+ * - After the prefix (or the prefix for pair definitions), the type of relation is encoded:
+ *      - "m" => Module*
+ *      - "w" => WireBase*
+ *      - "r" => RegisterBase*
+ *      - "mm" => Module* -> Module*
+ *      - "mw" => Module* -> WireBase*
+ *      - "mr" => Module* -> RegisterBase*
+ *      - "wm" => WireBase* -> Module*
+ *      - "rm" => RegisterBase* -> Module*
+ * - The type of typedef is specified next:
+ *      - "data_t" = base data type
+ *      - "iter_t" = an iterator of the base data type
+ *      - "data_pair_t" = a pair<T1, T2> of the base data types T1 and T2
+ *      - "iter_pair_t" = a pair<T1, T2> of the iterators of base data types T1 and T2
+ * As all types are pointers or iterators, this header can be included before actual definitions
+ * of the Module, Wire, and Register classes.
  */
 
+// Forward references
 class Module;
 class WireBase;
 class RegisterBase;
@@ -123,7 +149,7 @@ private:
     }
 
 public:
-    // Data structure getters
+    // Data structure getters.
     inline set_m_data_t& runq()		                        { return data().runq; }
     inline set_w_data_t& wireList()			                { return data().wireList; }
     inline set_r_data_t& registerList()                     { return data().registerList; }
@@ -139,7 +165,7 @@ public:
     inline umm_mr_data_t& trigger_module_register()			{ return data().trigger_module_register; }
     static uint32_t& vcd_id_count()			                { return data().vcd_id_count; }
 
-    // Bidirectional map association methods
+    // Bidirectional map association methods.
     inline void associate_parent_child(const Module *p, const Module* c) {
         instanceDB_parent_child().insert(std::make_pair(p, c));
         instanceDB_child_parent().insert(std::make_pair(c, p));
@@ -153,7 +179,7 @@ public:
         instanceDB_register_module().insert(std::make_pair(r, m));
     }
 
-    // Birectional sensitization methods
+    // Birectional sensitization methods.
     inline void sensitize_to_wire(const Module *m, const WireBase* w) {
         trigger_module_wire().insert(std::make_pair(m, w));
         trigger_wire_module().insert(std::make_pair(w, m));
@@ -163,9 +189,8 @@ public:
         trigger_register_module().insert(std::make_pair(r, m));
     }
 
-    // Bidirectional map specific dissociation methods
+    // Bidirectional map specific dissociation methods.
     void dissociate_wire_in_module(const WireBase* w, const Module *m) {
-        // delete forward map instance
         umm_mw_data_t& fw_map = instanceDB_module_wire();
         umm_mw_iter_pair_t fw_range = fw_map.equal_range(m);
         for (umm_mw_iter_t it = fw_range.first; it != fw_range.second; it++) {
@@ -174,12 +199,9 @@ public:
                 break;
             }
         }
-
-        // delete backward map instance
         instanceDB_wire_module().erase(w);
     }
     void dissociate_register_in_module(const RegisterBase* r, const Module *m) {
-        // delete forward map instance
         umm_mr_data_t& fw_map = instanceDB_module_register();
         umm_mr_iter_pair_t fw_range = fw_map.equal_range(m);
         for (umm_mr_iter_t it = fw_range.first; it != fw_range.second; it++) {
@@ -188,12 +210,10 @@ public:
                 break;
             }
         }
-
-        // delete backward map instance
         instanceDB_register_module().erase(r);
     }
 
-    // Bidirectional map complete dissociation methods
+    // Bidirectional map complete dissociation methods.
     void dissociate_child_in_parent(const Module* p, const Module *c) {
         umm_mm_data_t& map = instanceDB_parent_child();
         umm_mm_iter_pair_t range = map.equal_range(p);
@@ -224,16 +244,13 @@ public:
         map.erase(m);
     }
 
-    // Bidirectional specific desensitization
+    // Bidirectional specific desensitization.
     void desensitize_to_wire(const Module *m, const WireBase* w) {
-        // erase matching entry in forward map
         umm_mw_data_t& mw_map = trigger_module_wire();
         umm_mw_iter_pair_t mw_range = mw_map.equal_range(m);
         for ( ; mw_range.first != mw_range.second; mw_range.first++)
             if (mw_range.first->first == m && mw_range.first->second == w)
                 mw_map.erase(mw_range.first);
-
-        // erase matching entry in backward map
         umm_wm_data_t& wm_map = trigger_wire_module();
         umm_wm_iter_pair_t wm_range = wm_map.equal_range(w);
         for ( ; wm_range.first != wm_range.second; wm_range.first++)
@@ -241,14 +258,11 @@ public:
                 wm_map.erase(wm_range.first);
     }
     void desensitize_to_register(const Module *m, const RegisterBase* r) {
-        // erase matching entry in forward map
         umm_mr_data_t& mr_map = trigger_module_register();
         umm_mr_iter_pair_t mr_range = mr_map.equal_range(m);
         for ( ; mr_range.first != mr_range.second; mr_range.first++)
             if (mr_range.first->first == m && mr_range.first->second == r)
                 mr_map.erase(mr_range.first);
-
-        // erase matching entry in backward map
         umm_rm_data_t& rm_map = trigger_register_module();
         umm_rm_iter_pair_t rm_range = rm_map.equal_range(r);
         for ( ; rm_range.first != rm_range.second; rm_range.first++)
@@ -256,43 +270,31 @@ public:
                 rm_map.erase(rm_range.first);
     }
     void desensitize_all_wires_to_module(const Module* m) {
-        // erase all wires matching m in forward map
         trigger_module_wire().erase(m);
-
-        // erase matching entry in backward map
         umm_wm_data_t& wm_map = trigger_wire_module();
         for (umm_wm_iter_t it = wm_map.begin(); it != wm_map.end(); it++)
             if (it->second == m)
                 wm_map.erase(it);
     }
     void desensitize_all_registers_to_module(const Module* m) {
-        // erase all wires matching m in forward map
         trigger_module_register().erase(m);
-
-        // erase matching entry in backward map
         umm_rm_data_t& rm_map = trigger_register_module();
         for (umm_rm_iter_t it = rm_map.begin(); it != rm_map.end(); it++)
             if (it->second == m)
                 rm_map.erase(it);
     }
 
-    // Bidirectional complete desensitization
+    // Bidirectional complete desensitization.
     void desensitize_wire(const WireBase* w) {
-        // erase an matching forward map
         for (umm_mw_iter_t it = trigger_module_wire().begin(); it != trigger_module_wire().end(); it++)
             if (it->second == w)
                 trigger_module_wire().erase(it);
-
-        // erase an matching backward map
         trigger_wire_module().erase(w);
     }
     void desensitize_register(const RegisterBase* r) {
-        // erase an matching forward map
         for (umm_mr_iter_t it = trigger_module_register().begin(); it != trigger_module_register().end(); it++)
             if (it->second == r)
                 trigger_module_register().erase(it);
-
-        // erase an matching backward map
         trigger_register_module().erase(r);
     }
 };

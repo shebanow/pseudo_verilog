@@ -10,7 +10,7 @@ LFLAGS = -g
 $(TARGET) : $(FMODOBJ)
 	$(CC) $(LFLAGS) -o $@ $(FMODOBJ) $(LIBPATHS)
 
-xxx.o : xxx.cc pv_global.h
+xxx.o : xxx.cc pv.h pv_bitwidth.h pv_global.h pv_macros.h pv_module.h pv_register.h pv_testbench.h pv_value2string.h pv_vcd.h pv_wires.h
 # main.o : main.h simulator.h tlc.h main.cc
 # simulator.o: main.h simulator.h simulator.cc
 # iAcoustic.o: main.h simulator.h iAcoustic.h iAcoustic.cc

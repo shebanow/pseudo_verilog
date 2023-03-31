@@ -18,42 +18,25 @@
  #define _PV_MODULE_H_
 
 /*
- * General note about "static" structures declared in this header. In the Module class,
- * there are a set iof "global" data types declared. These data structures are defined
- * in the "pv_global.h" header. As designed, all such declarations are static (aka "global") -
- * there is one such data structure for all instances of the Module class. These "header-only"
- * declarations take the place of actual "static" defines in a ".cpp"/".cc" file, and consequently
- * obviate the need for a separately compiled and linked library module. As to why they are
- * declare as part of the Module class, this header file appears before most others, and specifically
- * the wire.h and register.h headers, *and* Modules must be instanced before any Wire or Register
- * can be instanced.
- *
- * There are three categories of such declarations:
- *  1. "xxxInstanceDB": three of them: Module, WireBase, and RegisterBase. These data structures
- *      record which instances of each class are currently active.
- *  2. "xxxConnectionDB": two of them recording the sensistation of Wires/Registers to Modules.
- *  3. "runQ": a list of Module pointers that have been triggered by wire or registers changes they
- *      are sensitized to.
+ * Module class. This is a container base class for module implementations.
+ * Subclasses of the Module class exactly mirror module declarations in Verilog.
+ * Wires, registers, or other modules instanced within a subclass are hierarchically
+ * instanced below that subclass. 
  */
 
-/*
- * Module class.
- * This is a container base class for module implementations.
- * Besides the constructor, one virtual function must be implemented
- * by the subclass inheriting from this class, the operator() functor.
- * This is called each time this module must be evaluated. In Verilog,
- * for a module "m", this is equivalent to "always @(*) m;", i.e.,
- * a behavioral evaluation.
- */
+// Forward declarations.
+class WireBase;
+class RegisterBase;
+namespace vcd { class writer; }
 
-class WireBase;                     // forward declaration
-class RegisterBase;                 // forward declaration
-namespace vcd { class writer; }     // forward declaration
+// Declare the Module base class.
 class Module {
 public:
-    // Module constructors/destructor.
+    // Module constructors: variants are based on whether instance name is pass as std::string or char*.
     Module(const Module* p, const std::string& str) : parent_module(p), nm(str) { constructor_common(); }
     Module(const Module* p, const char* str) : parent_module(p), nm(str) { constructor_common(); }
+
+    // Module destructor. The destructor attempts to unwind all references to this module instance.
     virtual ~Module() {
         // If module has a parent, disconnect instance of this from that parent and desensitize outputs
         if (parent_module) {
@@ -73,8 +56,7 @@ public:
         global.runq().erase(this);
     }
 
-    // Required implementation: called to update the module upon change in its sensitivity lists
-    // (wires or registers). 
+    // Required implementation: called to update the module upon change in its sensitivity lists (wires or registers). 
     virtual void eval() = 0;
 
     // Getters for type, name and instance name.
@@ -88,26 +70,17 @@ public:
         }
     }
 
-    // Getter to return parent
+    // Getter to return parent.
     inline const Module* parent() const { return parent_module; }
 
-    // functions to add/remove wire and register connections
-    void sensitize_module_to_wire(const WireBase* theWire) 
-        { global.sensitize_to_wire(this, theWire); }
-    void desensitize_module_to_wire(const WireBase* theWire)
-        { global.desensitize_to_wire(this, theWire); }
-    void sensitize_module_to_register(const RegisterBase* theRegister) 
-        { global.sensitize_to_register(this, theRegister); }
-    void desensitize_module_to_register(const RegisterBase* theRegister)
-        { global.desensitize_to_register(this, theRegister); }
-
-    // TODO: do we still want to emply a set here?
-    // connect/disconnect output, connect output list
-    inline void connect_output(const WireBase* output) { output_list.insert(output); }
-    inline void disconnect_output(const WireBase* output) { output_list.erase(output); }
+    // Methods to manually sensitize/desensitize this module to wire and register connections.
+    void sensitize_module_to_wire(const WireBase* theWire) { global.sensitize_to_wire(this, theWire); }
+    void desensitize_module_to_wire(const WireBase* theWire) { global.desensitize_to_wire(this, theWire); }
+    void sensitize_module_to_register(const RegisterBase* theRegister) { global.sensitize_to_register(this, theRegister); }
+    void desensitize_module_to_register(const RegisterBase* theRegister) { global.desensitize_to_register(this, theRegister); }
 
 protected:
-    // This instances a global data structure (class statics)
+    // This instances a global data structure (class static).
     global_data_t global;
 
 private:
@@ -116,16 +89,16 @@ private:
     friend class RegisterBase;
     friend class vcd::writer;
 
-    // output list
+    // Output list: list of Outputs in this module; need to auto-sensitize the parent of this module to these outputs.
     std::set<const WireBase*> output_list;
 
-    // module parent; NULL => top level module.
+    // Module parent; NULL => top level module.
     const Module* parent_module;
 
-    // module instance name
+    // Module instance name.
     const std::string nm;
 
-    // constructor common code
+    // Constructor common code.
     void constructor_common() {
         if (parent_module) {
             // Relate parent to child (aka this).

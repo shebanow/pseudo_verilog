@@ -19,9 +19,6 @@
 
 /*
  * The Testbench class is used as a template for constructing testbenches to test modules in a model.
- * It includes support for directed random testing of I/O, and is similar in
- * concept to UVM testing with System Verilog. See https://verificationguide.com/uvm/uvm-testbench/. 
- *
  * As a Testbench is a subclass of Module, testbenches have an eval() function as well, called upon changes to outputs of
  * the DUT it is testing. Also like Module, a Testbench can comtain other simulatable (i.e., clockable) components and 
  * be sensitized accordingly. Testbenches differ from regular modules in that there is a main() function that accepts
@@ -49,32 +46,32 @@ struct Testbench : public Module {
      * Running a simulation. Code below runs all test cases. 
      *
      * Parameters controlling a simulation:
-     * - set_vcd_writer(vcd::writer*): point to a VCD writer class (by default NULL => no VCD dump)
-     *      - writer->get_vcd_start_clock(): when to start dumping to a VCD
-     *      - writer->get_vcd_stop_clock(): when to stop dumping to a VCD; vcd_stop_clock > vcd_start_clock
+     * - set_vcd_writer(): point to a VCD writer class (by default NULL => no VCD dump)
+     *      - writer->set_vcd_start_clock(): when to start dumping to a VCD
+     *      - writer->set_vcd_stop_clock(): when to stop dumping to a VCD; vcd_stop_clock > vcd_start_clock
+     * - set_idle_limit(): set a limit on the number of clock cycles in which no activity takes place; -1 => no limit
      * - set_cycle_limit(): set a limit on the number of clocks we can run; -1 => no limit
      * - set_iteration_limit(): set a limit on the number of eval() iterations per clock; -1 => no limit
-     * - set_idle_limit(): set a limit on the number of clock cycles in which no activity takes place; -1 => no limit
      * - end_simulation(): call when you want to end a simulation now.
      */
 
-    // simulation parameter getters
+    // Simulation parameter getters.
     inline const int32_t get_cycle_limit() const { return opt_cycle_limit; }
     inline const int32_t get_iteration_limit() const { return opt_iteration_limit; }
     inline const int32_t get_idle_limit() const { return opt_idle_limit; }
     inline const vcd::writer* get_vcd_writer() const { return writer; }
 
-    // simulation parameter setters
+    // Simulation parameter setters.
+    inline void set_vcd_writer(const vcd::writer* w) { writer = const_cast<vcd::writer*>(w); }
+    inline void set_idle_limit(const int32_t idle_limit) { opt_idle_limit = idle_limit; }
     inline void set_cycle_limit(const int32_t cycle_limit) { opt_cycle_limit = cycle_limit; }
     inline void set_iteration_limit(const int32_t iteration_limit) { opt_iteration_limit = iteration_limit; }
-    inline void set_idle_limit(const int32_t idle_limit) { opt_idle_limit = idle_limit; }
-    inline void set_vcd_writer(const vcd::writer* w) { writer = const_cast<vcd::writer*>(w); }
 
-    // simulation control
+    // Simulation runtime getter.
+    inline const uint32_t get_clock() const { return clock_num; }
+
+    // Simulation run time control.
     inline void end_simulation() { exit_simulation = true; }
-
-    // simulation run time getters
-    inline uint32_t get_clock() const { return clock_num; }
 
     // The main simulation method.
     void simulation() {
@@ -85,28 +82,28 @@ struct Testbench : public Module {
 
         // If we are writing a VCD, generate header and definitions, initial state.
         // If dump start clock is positive non-zero, also execute a VCD dumpoff() command.
-        if (writer) {
+        if (writer != NULL && writer->is_open()) {
             vcd_generate_header();
             vcd_dumpvars(0);
             if (writer->get_vcd_start_clock() > 0)
                 writer->vcd_dumpoff(this);
         }
 
-        // run simulation cycles
+        // Run simulation cycles.
         for (clock_num = 1; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
             // If VCD dumps are active, handle start/stop clock events
-            if (writer != NULL) {
-                // handle VCD stop clock
+            if (writer != NULL && writer->is_open()) {
+                // Handle VCD stop clock.
                 if (writer->get_vcd_stop_clock() > 0 && writer->get_vcd_stop_clock() == clock_num) {
                     writer->emit_pos_edge_tick(clock_num);
                     writer->vcd_dumpoff(this);
                     had_stop_event = true;
                 }
 
-                // handle VCD start clock
+                // Handle VCD start clock.
                 if (writer->get_vcd_start_clock() > 0 && writer->get_vcd_start_clock() == clock_num) {
                     writer->set_emitting_change(true);
                     writer->emit_pos_edge_tick(clock_num);
@@ -118,10 +115,10 @@ struct Testbench : public Module {
             }
 
             // Clock all flops.
-            std::ostream* vcds = (writer && writer->is_open() && writer->get_emitting_change()) ? writer->get_stream() : NULL;
+            std::ostream* vcd_stream = (writer && writer->is_open() && writer->get_emitting_change()) ? writer->get_stream() : NULL;
             set_r_data_t& rlist = this->global.registerList();
             for (set_r_iter_t it = rlist.begin(); it != rlist.end(); it++)
-                const_cast<RegisterBase*>(*it)->pos_edge(vcds);
+                const_cast<RegisterBase*>(*it)->pos_edge(vcd_stream);
 
             // Now, based on changes casued by register updates, propagate until idle.
             if (opt_idle_limit > 0 && this->global.runq().empty() && ++idle_cycles == opt_idle_limit) {
@@ -130,52 +127,48 @@ struct Testbench : public Module {
                 throw std::runtime_error(err_str.str());
             }
             while (!this->global.runq().empty()) {
-                // we were non-idle, so set idles cycles to 0
+                // We were non-idle, so set idles cycles to 0.
                 idle_cycles = 0;
 
-                // if iteration limit in a clock exceeded, fail simulator
+                // If iteration limit in a clock exceeded, fail simulator.
                 if (opt_iteration_limit > 0 && iteration_count++ == opt_iteration_limit) {
                     std::stringstream err_str;
                     err_str << "Simulation failed: iteration limit exceeded at clock cycle " << clock_num;
                     throw std::runtime_error(err_str.str());
                 }
 
-                // make a copy of run queue, then clear it.
+                // Make a copy of run queue, then clear it.
                 std::set<const Module*> to_do_list(this->global.runq());
                 this->global.runq().clear();
 
-                // iterate through to do list, updating each module
-                // An FYI: inner loop has "*it" as the value of the iterator.
-                // It is a pointer to a module, so we dereference that to execute the evaluation function.
-                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++) {
-                    Module *m = const_cast<Module*>(*it);
-                    m->eval();
-                }
+                // Iterate through to do list, updating each module
+                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
+                    const_cast<Module*>(*it)->eval();
             }
 
-            // negative edge clock calls
-            if (writer != NULL && writer->get_emitting_change()) {
+            // Negative edge clock calls.
+            if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
                 for (set_w_iter_t it = this->global.wireList().begin(); it != this->global.wireList().end(); it++)
                     const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
                 writer->emit_neg_edge_tick(clock_num);
                 writer->emit_neg_edge_clock();
             }
 
-            // end of clock: clear iteration limit.
-            // run post-clock edge against the loaded test bench
+            // End of clock: clear iteration limit.
+            // Run post-clock edge against the loaded test bench.
             iteration_count = 0;
             this->post_clock(clock_num);
         }
 
-        // if had a VCD stop clock and it triggered, need to add final dump of 'x values
-        if (writer != NULL && had_stop_event) {
+        // If had a VCD stop clock and it triggered, need to add final dump of 'x values.
+        if (writer != NULL && writer->is_open() && had_stop_event) {
             writer->set_emitting_change(true);
             writer->emit_pos_edge_tick(clock_num);
             writer->emit_x_clock();
             writer->vcd_dumpoff(this);
         }
 
-        // clear clock num just in case it is read again
+        // Clear clock num just in case it is read again.
         clock_num = 0;
     }
 
@@ -200,18 +193,18 @@ protected:
     vcd::writer* writer;
 
 private:
-    // Simulation parameters
+    // Simulation parameters.
     int32_t opt_cycle_limit;
     int32_t opt_iteration_limit;
     int32_t opt_idle_limit;
 
-    // Test case parameters
+    // Test case parameters.
     bool in_tc;   
     int pass_count;
     int fail_count;
     bool exit_simulation;
 
-    // Clock cycle counter
+    // Clock cycle counter.
     uint32_t clock_num;
 
     // VCD helper: generate header and definitions.
@@ -221,7 +214,7 @@ private:
         writer->emit_end_definitions();
     }
 
-    // VCD helper: vcd_dumpvars: performs VCD dumpvars command
+    // VCD helper: vcd_dumpvars: performs VCD dumpvars command.
     void vcd_dumpvars(const uint32_t clock_num) {
         writer->emit_pos_edge_tick(clock_num);
         writer->emit_dumpvars();
@@ -231,7 +224,7 @@ private:
         writer->set_emitting_change(true);
     }
 
-    // VCD helper: vcd_dumpon: performs VCD dumpon command
+    // VCD helper: vcd_dumpon: performs VCD dumpon command.
     void vcd_dumpon() {
         writer->emit_dumpon();
         writer->emit_pos_edge_clock();
@@ -240,7 +233,7 @@ private:
         writer->set_emitting_change(true);
     }
 
-    // VCD helper: vcd_dumpoff: performs VCD dumpoff command
+    // VCD helper: vcd_dumpoff: performs VCD dumpoff command.
     void vcd_dumpoff() {
         writer->emit_dumpoff();
         writer->emit_x_clock();
@@ -249,7 +242,7 @@ private:
         writer->set_emitting_change(false);
     }
 
-    // Common constructor code
+    // Common constructor code.
     void constructor_common() {
         // Set default simulation parameters.
         opt_cycle_limit = -1;
