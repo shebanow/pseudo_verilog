@@ -107,7 +107,7 @@ public:
 
     // VCD related.
     std::string vcd_id_str;
-    virtual void emit_vcd_definition(std::ostream* vcd_stream) = 0;
+    virtual void emit_vcd_definition(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpvars(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpon(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
@@ -252,22 +252,20 @@ public:
     inline WireTemplateBase  operator++(int) { WireTemplateBase tmp = *this; ++value; return tmp; }
     inline WireTemplateBase  operator--(int) { WireTemplateBase tmp = *this; --value; return tmp; }
 
-    // VCD definition.
+    // VCD dump methods.
     void emit_vcd_definition(std::ostream* vcd_stream) const
         { *vcd_stream << "$var wire " << width << " " << vcd_id_str << " " << wire_name << " $end" << std::endl; }
-
-    // VCD dump methods.
     void emit_vcd_dumpvars(std::ostream* vcd_stream) const
-        { *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value)); }
+        { *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     void emit_vcd_dumpon(std::ostream* vcd_stream) const
-        { *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value)); }
+        { *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     void emit_vcd_dumpoff(std::ostream* vcd_stream) const
-        { *vcd_stream << (vcd_id_str, width, v2s->undefined()); }
+        { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
     // VCD updates on negative edge of clock: if value has changed AND we are dumping VCD, print the change.
     void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
         if (vcd_stream && (is_x ? (is_x ^ was_x) : (was_x || value != old_value)))
-            *vcd_stream << (vcd_id_str, width, is_x ? v2s->undefined() : (*v2s)(value));
+            *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
         was_x = is_x;
         old_value = value;
     }

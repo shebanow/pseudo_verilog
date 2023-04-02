@@ -219,7 +219,7 @@ public:
         umm_mm_iter_pair_t range = map.equal_range(p);
         for (umm_mm_iter_t it = range.first; it != range.second; it++) {
             if (it->second == c) {
-                instanceDB_child_parent().erase(it);
+                map.erase(it);
                 break;
             }
         }
@@ -248,53 +248,77 @@ public:
     void desensitize_to_wire(const Module *m, const WireBase* w) {
         umm_mw_data_t& mw_map = trigger_module_wire();
         umm_mw_iter_pair_t mw_range = mw_map.equal_range(m);
-        for ( ; mw_range.first != mw_range.second; mw_range.first++)
-            if (mw_range.first->first == m && mw_range.first->second == w)
+        for ( ; mw_range.first != mw_range.second; mw_range.first++) {
+            if (mw_range.first->first == m && mw_range.first->second == w) {
                 mw_map.erase(mw_range.first);
+                break;
+            }
+        }
         umm_wm_data_t& wm_map = trigger_wire_module();
         umm_wm_iter_pair_t wm_range = wm_map.equal_range(w);
-        for ( ; wm_range.first != wm_range.second; wm_range.first++)
-            if (wm_range.first->first == w && wm_range.first->second == m)
+        for ( ; wm_range.first != wm_range.second; wm_range.first++) {
+            if (wm_range.first->first == w && wm_range.first->second == m) {
                 wm_map.erase(wm_range.first);
+                break;
+            }
+        }
     }
     void desensitize_to_register(const Module *m, const RegisterBase* r) {
         umm_mr_data_t& mr_map = trigger_module_register();
         umm_mr_iter_pair_t mr_range = mr_map.equal_range(m);
-        for ( ; mr_range.first != mr_range.second; mr_range.first++)
-            if (mr_range.first->first == m && mr_range.first->second == r)
+        for ( ; mr_range.first != mr_range.second; mr_range.first++) {
+            if (mr_range.first->first == m && mr_range.first->second == r) {
                 mr_map.erase(mr_range.first);
+                break;
+            }
+        }
         umm_rm_data_t& rm_map = trigger_register_module();
         umm_rm_iter_pair_t rm_range = rm_map.equal_range(r);
-        for ( ; rm_range.first != rm_range.second; rm_range.first++)
-            if (rm_range.first->first == r && rm_range.first->second == m)
+        for ( ; rm_range.first != rm_range.second; rm_range.first++) {
+            if (rm_range.first->first == r && rm_range.first->second == m) {
                 rm_map.erase(rm_range.first);
+                break;
+            }
+        }
     }
     void desensitize_all_wires_to_module(const Module* m) {
         trigger_module_wire().erase(m);
         umm_wm_data_t& wm_map = trigger_wire_module();
-        for (umm_wm_iter_t it = wm_map.begin(); it != wm_map.end(); it++)
-            if (it->second == m)
+        for (umm_wm_iter_t it = wm_map.begin(); it != wm_map.end(); it++) {
+            if (it->second == m) {
                 wm_map.erase(it);
+                break;
+            }
+        }
     }
     void desensitize_all_registers_to_module(const Module* m) {
         trigger_module_register().erase(m);
         umm_rm_data_t& rm_map = trigger_register_module();
-        for (umm_rm_iter_t it = rm_map.begin(); it != rm_map.end(); it++)
-            if (it->second == m)
+        for (umm_rm_iter_t it = rm_map.begin(); it != rm_map.end(); it++) {
+            if (it->second == m) {
                 rm_map.erase(it);
+                break;
+            }
+        }
     }
 
     // Bidirectional complete desensitization.
     void desensitize_wire(const WireBase* w) {
-        for (umm_mw_iter_t it = trigger_module_wire().begin(); it != trigger_module_wire().end(); it++)
-            if (it->second == w)
+        for (umm_mw_iter_t it = trigger_module_wire().begin(); it != trigger_module_wire().end(); it++) {
+            if (it->second == w) {
                 trigger_module_wire().erase(it);
+                break;
+            }
+        }
         trigger_wire_module().erase(w);
     }
     void desensitize_register(const RegisterBase* r) {
-        for (umm_mr_iter_t it = trigger_module_register().begin(); it != trigger_module_register().end(); it++)
-            if (it->second == r)
+        for (umm_mr_iter_t it = trigger_module_register().begin(); it != trigger_module_register().end(); it++) {
+            if (it->second == r) {
                 trigger_module_register().erase(it);
+                break;
+            }
+        }
         trigger_register_module().erase(r);
     }
 };

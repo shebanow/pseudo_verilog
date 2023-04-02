@@ -167,9 +167,6 @@ struct Testbench : public Module {
             writer->emit_x_clock();
             writer->vcd_dumpoff(this);
         }
-
-        // Clear clock num just in case it is read again.
-        clock_num = 0;
     }
 
     // Methods supporting test case state.
