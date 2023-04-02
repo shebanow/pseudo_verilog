@@ -1,7 +1,7 @@
-TARGET = xxx
+TARGET = tlc
 INCLUDE = -I../include
 LIBPATHS = 
-FMODOBJ = xxx.o
+FMODOBJ = tlc.o
 CC = clang++
 CFLAGS = -g -std=c++11 -Wall -Wno-deprecated-declarations -Wno-format-security
 LFLAGS = -g
@@ -9,7 +9,7 @@ LFLAGS = -g
 $(TARGET) : $(FMODOBJ)
 	$(CC) $(LFLAGS) -o $@ $(FMODOBJ) $(LIBPATHS)
 
-xxx.o : xxx.cc ../include/pv.h ../include/pv_bitwidth.h ../include/pv_global.h ../include/pv_macros.h ../include/pv_module.h \
+tlc.o : tlc.cc ../include/pv.h ../include/pv_bitwidth.h ../include/pv_global.h ../include/pv_macros.h ../include/pv_module.h \
     ../include/pv_register.h ../include/pv_testbench.h ../include/pv_value2string.h ../include/pv_vcd.h ../include/pv_wires.h
 
 .cc.o:

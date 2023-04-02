@@ -17,7 +17,8 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
-#include "simulator.h"
+#include <getopt.h>
+#include "pv.h"
 
 enum color {
     red = 0,
@@ -98,12 +99,17 @@ struct tlc_tb : public Testbench {
     void main(int argc, char** argv) {
         int opt_timer_ticks = 4;
         int ch;
+        int32_t cycle_limit = 32;
 
-        simulator::opt_cycle_limit = 32;           // override default
+        // Process TLC-specific command line options
         while ((ch = getopt(argc, argv, "+t:L:")) != -1) {
             switch (ch) {
             case 'L':
-                simulator::opt_cycle_limit = atoi(optarg);
+                cycle_limit = atoi(optarg);
+                if (cycle_limit < 1) {
+                    std::cerr << "Illegal cycle limit " << cycle_limit << std::endl;
+                    tlc_usage();
+                }
                 break;
             case 't':
                 opt_timer_ticks = atoi(optarg);
@@ -119,10 +125,13 @@ struct tlc_tb : public Testbench {
         if (argc) 
             tlc_usage();
         dut->delay = opt_timer_ticks - 1;
+
+        // Set simultion() options.
+        set_cycle_limit(cycle_limit);
+        set_iteration_limit(10);
     }
 
     // activity around clocks
-    void pre_clock(const uint32_t cycle_num) {}
     void eval() {}
     void post_clock(const uint32_t cycle_num) {
         printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(dut->east_west), color2str(dut->north_south));

@@ -1,0 +1,157 @@
+/*
+ * Copyright (c) 2022 Ai Linear Inc. All Rights Reserved. Proprietary and Confidential.
+ * @file main.cc
+ * @author m.shebanow
+ * @date 2021/11/18
+ * @brief iAcoustic FMOD
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
+#include <unistd.h>
+#include <functional>
+#include <memory>
+#include <strings.h>
+#include <getopt.h>
+
+// program name
+char* prog_name;
+
+// command line arguments
+int opt_verbose = false;
+int opt_seed;
+
+void testbench_usage() {
+    std::cerr << "usage: " << prog_name << " <options> <model name> <model options>\n    where <model name> is one of:" << std::endl;
+    for (int i = 0; i < num_models; i++)
+        std::cerr << "\t" << model_selection_table[i].cli_name << " : " << model_selection_table[i].description << std::endl;
+    exit(1);
+}
+
+void install_testbench() {
+    for (int i = 0; i < num_models; i++) {
+        if (model_name.compare(model_selection_table[i].cli_name) == 0) {
+            simulator::theTestbench = (*model_selection_table[i].allocator)();
+            return;
+        }
+    }
+    testbench_usage();
+}
+
+// from getopt manual: 2nd argument can be:
+//      no_argument: no argument, 3rd is NULL, 4th is default value
+//      required_argument: argument is required, 3rd is &int flag (or NULL if string: use optarg), 4th is default value
+static struct option options[] {
+    // generic help; must ALWAYS first
+    { "help", no_argument, NULL, 0 },
+    { "verbose", optional_argument, NULL, 0 },
+
+    // other long arguments
+    { "seed", required_argument, &opt_seed, getpid() },
+    { "iterations", required_argument, &simulator::opt_iteration_limit, 10 },
+    { "vcd", required_argument, NULL, 0 },
+    { "vcd_start", required_argument, &simulator::opt_vcd_start_clock, 0 },
+    { "vcd_stop", required_argument, &simulator::opt_vcd_stop_clock, -1 },
+
+    // null termination
+    { 0, 0, 0, 0 }
+};
+
+void usage(int argc, char** argv) {
+    std::cerr << "usage: " << argv[0] << " <fmod options> <model name> <model options>\n    where <fmod options> are:" << std::endl;
+    std::cerr << "        -h, --help\t:\tprints help" << std::endl;
+    std::cerr << "        -v{n}, --verbose{=n}\t:\tbe verbose (at optional level)" << std::endl;
+    std::cerr << "        -L{n}, --iterations={n}\t:\tsets the max number of eval() iterations per clock cycle" << std::endl;
+    std::cerr << "        --vcd <file>\t:\tdump a VCD file for the simulation" << std::endl;
+    std::cerr << "        --vcd_start=<n>\t:\tset a start time for VCD dumping (default = 0)" << std::endl;
+    std::cerr << "        --vcd_stop=<n>\t:\tset a stop time for VCD dumping (default is none)" << std::endl;
+    exit(1);
+}
+
+// reference for device under test
+tlc* DUT;
+
+//
+// Main program
+//
+
+int main(int argc, char **argv) {
+    int ch;
+    int option_index;
+
+    // option processing
+    prog_name = argv[0];
+    while ((ch = getopt_long(argc, argv, "+hv::S:L:", options, &option_index)) != -1) {
+        switch (ch) {
+        // NOTE: non-int long opts are not handled in the '0' case yet.
+        // If any, will need to add a check for that and implement as a special check based on option_index
+        // (strcmp(options[option_index].name, "<option>") == 0).
+        case 0:
+            if (!option_index) usage(argc, argv);
+            else if (option_index == 1) 
+                opt_verbose = optarg ? atoi(optarg) : 1;
+            else if (option_index == 4) { // vcd
+                simulator::opt_vcd_enable = true;
+                simulator::opt_vcd_file_name = optarg;
+            } else if (options[option_index].flag != NULL)
+                *options[option_index].flag = atoi(optarg);
+            break;
+        case 'v':
+            opt_verbose = optarg ? atoi(optarg) : 1;
+            break;
+        case 'L':
+            simulator::opt_iteration_limit = atoi(optarg);
+            break;
+        case 'S':
+            opt_seed = atoi(optarg);
+            break;
+        case 'h':
+        case '?':
+        case ':':
+            usage(argc, argv);
+            break;
+        default:
+            break;
+        }
+    }
+
+    // process remaining args. The first must be a model name.
+    argc -= optind;
+    argv += optind;
+    if (!argc)
+        testbench_usage();
+    model_name = std::string(argv[0]);
+    install_testbench();
+    argc--; argv++; optind = 0;
+
+printf("vcd start = %d, stop = %d\n", simulator::opt_vcd_start_clock, simulator::opt_vcd_stop_clock);
+
+    // if VCD is enabled, create the file
+    if (simulator::opt_vcd_enable) {
+        simulator::vcd_file = new vcd::writer(simulator::opt_vcd_file_name);
+        if (!simulator::vcd_file->is_open()) {
+            delete simulator::vcd_file;
+            exit(1);
+        }
+    }
+
+    // process testbench arguments and run the simulation
+    simulator::theTestbench->main(argc, argv);
+
+    // if VCD is enabled, generate the header and emit hierarchy definition ahead of simulation
+    // fmod is using an assumed clock speed of 100 MHz with a 1ns timescale (10 ticks per clock)
+    if (simulator::opt_vcd_enable) {
+        simulator::vcd_file->set_clock_freq(100e6);
+        simulator::vcd_generate_header("1.0", vcd::TS_time::t1, vcd::TS_unit::ns);
+        simulator::vcd_dumpvars(0);
+    }
+    return simulator::run();
+
+    // if VCD is enabled, close the file
+    if (simulator::opt_vcd_enable)
+        delete simulator::vcd_file;
+
+    // sim complete
+    return 0;
+}
+
