@@ -9,7 +9,7 @@ LFLAGS = -g
 $(TARGET) : $(FMODOBJ)
 	$(CC) $(LFLAGS) -o $@ $(FMODOBJ) $(LIBPATHS)
 
-tlc.o : tlc.cc ../include/pv.h ../include/pv_bitwidth.h ../include/pv_global.h ../include/pv_macros.h ../include/pv_module.h \
+tlc.o : tlc.cc ../include/pv.h ../include/pv_bitwidth.h ../include/pv_macros.h ../include/pv_module.h \
     ../include/pv_register.h ../include/pv_testbench.h ../include/pv_value2string.h ../include/pv_vcd.h ../include/pv_wires.h
 
 .cc.o:

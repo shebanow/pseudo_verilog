@@ -232,19 +232,16 @@ namespace vcd {
                 this->emit_vcd_clock_ID();
 
             // Dump local wires.
-            umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
-            for ( ; w_range.first != w_range.second; w_range.first++)
-                const_cast<WireBase*>(w_range.first->second)->emit_vcd_definition(vcd_stream);
+            for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
+                const_cast<WireBase*>(*it)->emit_vcd_definition(vcd_stream);
 
             // Dump local registers.
-            umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
-            for ( ; r_range.first != r_range.second; r_range.first++)
-                const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_definition(vcd_stream);
+            for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+                const_cast<RegisterBase*>(*it)->emit_vcd_definition(vcd_stream);
 
             // Recursively dump any submodules.
-            umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
-            for ( ; m_range.first != m_range.second; m_range.first++)
-                this->vcd_definition(m_range.first->second, false);
+            for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+                this->vcd_definition(*it, false);
 
             // Exit current scope.
             this->emit_upscope();
@@ -257,19 +254,16 @@ namespace vcd {
 
             if (is_emitting_change) { 
                 // Dump local wires.
-                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
-                for ( ; w_range.first != w_range.second; w_range.first++)
-                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpvars(vcd_stream);
+                for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
+                    const_cast<WireBase*>(*it)->emit_vcd_dumpvars(vcd_stream);
 
                 // Dump local registers.
-                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
-                for ( ; r_range.first != r_range.second; r_range.first++)
-                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpvars(vcd_stream);
+                for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+                    const_cast<RegisterBase*>(*it)->emit_vcd_dumpvars(vcd_stream);
 
                 // Recursively dump any submodules.
-                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
-                for ( ; m_range.first != m_range.second; m_range.first++)
-                    this->vcd_dumpvars(m_range.first->second);
+                for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+                    this->vcd_dumpvars(*it);
             }
         }
 
@@ -280,19 +274,16 @@ namespace vcd {
 
             if (is_emitting_change) { 
                 // Dump local wires.
-                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
-                for ( ; w_range.first != w_range.second; w_range.first++)
-                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpon(vcd_stream);
+                for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
+                    const_cast<WireBase*>(*it)->emit_vcd_dumpon(vcd_stream);
 
                 // Dump local registers.
-                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
-                for ( ; r_range.first != r_range.second; r_range.first++)
-                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpon(vcd_stream);
+                for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+                    const_cast<RegisterBase*>(*it)->emit_vcd_dumpon(vcd_stream);
 
                 // Recursively dump any submodules.
-                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
-                for ( ; m_range.first != m_range.second; m_range.first++)
-                    this->vcd_dumpon(m_range.first->second);
+                for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+                    this->vcd_dumpon(*it);
             }
         }
 
@@ -303,19 +294,16 @@ namespace vcd {
 
             if (is_emitting_change) { 
                 // Dump local wires.
-                umm_mw_iter_pair_t w_range = const_cast<Module*>(m)->global.instanceDB_module_wire().equal_range(m);
-                for ( ; w_range.first != w_range.second; w_range.first++)
-                    const_cast<WireBase*>(w_range.first->second)->emit_vcd_dumpoff(vcd_stream);
+                for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
+                    const_cast<WireBase*>(*it)->emit_vcd_dumpoff(vcd_stream);
 
                 // Dump local registers.
-                umm_mr_iter_pair_t r_range = const_cast<Module*>(m)->global.instanceDB_module_register().equal_range(m);
-                for ( ; r_range.first != r_range.second; r_range.first++)
-                    const_cast<RegisterBase*>(r_range.first->second)->emit_vcd_dumpoff(vcd_stream);
+                for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+                    const_cast<RegisterBase*>(*it)->emit_vcd_dumpoff(vcd_stream);
 
                 // Recursively dump any submodules.
-                umm_mm_iter_pair_t m_range = const_cast<Module*>(m)->global.instanceDB_parent_child().equal_range(m);
-                for ( ; m_range.first != m_range.second; m_range.first++)
-                    this->vcd_dumpoff(m_range.first->second);
+                for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+                    this->vcd_dumpoff(*it);
             }
         }
 

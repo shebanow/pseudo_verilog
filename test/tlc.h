@@ -86,9 +86,9 @@ private:
 
 // TLC test bench
 struct tlc_tb : public Testbench {
-    tlc_tb(const std::string& str) : Testbench(str) { dut = &iTLC; }
-    tlc_tb(const char* str) : Testbench(str) { dut = &iTLC; }
-    virtual ~tlc_tb() { delete dut; }
+    tlc_tb(const std::string& str) : Testbench(str) {}
+    tlc_tb(const char* str) : Testbench(str) {}
+    virtual ~tlc_tb() {}
 
     void tlc_usage() {
         extern char* prog_name;
@@ -124,7 +124,7 @@ struct tlc_tb : public Testbench {
         argc -= optind;
         if (argc) 
             tlc_usage();
-        dut->delay = opt_timer_ticks - 1;
+        iTLC.delay = opt_timer_ticks - 1;
 
         // Set simultion() options.
         set_cycle_limit(cycle_limit);
@@ -134,13 +134,9 @@ struct tlc_tb : public Testbench {
     // activity around clocks
     void eval() {}
     void post_clock(const uint32_t cycle_num) {
-        printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(dut->east_west), color2str(dut->north_south));
+        printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
     }
 
     // the TLC instance
     tlc instance(iTLC);
-
-private:
-    tlc* dut;
 };
-

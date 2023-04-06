@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#include <typeinfo>
+#include <boost/core/demangle.hpp>
+
 #ifndef _PV_WIRES_H_
 #define _PV_WIRES_H_
 
@@ -67,45 +70,39 @@
  *  General naming:
  *      - name(): return non-hierarchical name of this wire.
  *      - instanceName(): return hierarchical name of this wire.
- *  Ties to Modules:
- *      - sensitize(): sensitize a Module to this wire.
- *      - desensitize(): desensitize a Module to this wire.
+ *  Getters:
+ *      - {virtual, abstract} get_width() - returns width of wire in bits.
  *  Related to VCD dumps:
- *      - vcd_neg_edge_update(): emit changed values to VCD file; abstract method, implemented in subclass
+ *      - {virtual, abstract} emit_vcd_definition() - print the definition of a wire to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpvars() - print the initial state of a wire to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
+ *      - {virtual, abstract} emit_vcd_dumpoff() - pringt 'x' states for the wire to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_neg_edge_update(): emit changed values to VCD stream.
  */
 
 class WireBase {
 protected:
     // Constructor/Destructor: protected so only subclass can use.
-    WireBase(const Module* p, const char* str) : parent_module(p), wire_name(str) { constructor_common(); }
-    WireBase(const Module* p, const std::string& nm) : parent_module(p), wire_name(nm) { constructor_common(); }
-    virtual ~WireBase() {
-        Module* m = const_cast<Module*>(parent_module);
-        m->global.dissociate_wire_in_module(this, parent_module);
-        m->global.wireList().erase(this);
-        m->global.desensitize_wire(this);
-    }
+    WireBase(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(str)
+        { constructor_common(); }
+    WireBase(const Module* p, const std::string& nm) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(nm)
+        { constructor_common(); }
+    virtual ~WireBase() { const_cast<Module*>(parent_module)->remove_wire_instance(self); }
 
 public:
     // General naming methods.
     const inline std::string name() const { return wire_name; }
     const std::string instanceName() const { 
-        if (parent_module == NULL)
-            return wire_name;
-        else {
-            std::string tmp = parent_module->instanceName() + "." + wire_name;
-            return tmp;
-        }
+        std::string tmp = parent_module->instanceName() + "." + wire_name;
+        return tmp;
     }
-
-    // Manually manage module sensitization.
-    void sensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.sensitize_to_wire(theModule, this); }
-    void desensitize(const Module* theModule) { const_cast<Module*>(parent_module)->global.desensitize_to_wire(theModule, this); }
 
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
 
-    // VCD related.
+    // VCD related. The virtual methods below can't be implemented in the base class as the data type
+    // is not known in the base class. However, we do want methods using the Wire-type classes the ability
+    // to execute these methods in a type-independent manner, hence the virtual functions below.
     std::string vcd_id_str;
     virtual void emit_vcd_definition(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpvars(std::ostream* vcd_stream) const = 0;
@@ -114,31 +111,31 @@ public:
     virtual void emit_vcd_neg_edge_update(std::ostream* vcd_stream) = 0;
 
 protected:
-    // Parent module and name.
+    // Parent modules and name.
     const Module* parent_module;
+    const Module* root_instance;
     const std::string wire_name;
 
-    // Schedule modules based on sensitivity to this wire.
-    void schedule_sensitized_modules() {
-        set_m_data_t& runq = const_cast<Module*>(parent_module)->global.runq();
-        umm_wm_iter_pair_t range = const_cast<Module*>(parent_module)->global.trigger_wire_module().equal_range(this);
-        for ( ; range.first != range.second; range.first++)
-            runq.insert(runq.cend(), range.first->second);
-    }
+    // Save sensitized module (if any)
+    Module *sensitized_module;
+
+    // Reference to self for instance list.
+    std::set<const WireBase*>::iterator self;
 
 private: 
     // Common constructor code.
     void constructor_common() {
-        // Parent cannot be NULL.
-        assert(parent_module != NULL);
+        // Parent cannot be NULL. 
+        if (parent_module == NULL)
+            throw std::invalid_argument("Wire must be declared withing a Module");
 
-        // Associate to parent module, add to global list of wires.
-        const_cast<Module*>(parent_module)->global.associate_module_wire(parent_module, this);
-        const_cast<Module*>(parent_module)->global.wireList().insert(this);
+        // Associate to parent module. Default is no sensitization.
+        self = const_cast<Module*>(parent_module->top())->add_wire_instance(this);
+        sensitized_module = NULL;
 
         // Initialize VCD ID.
         std::stringstream ss;
-        ss << "@" << std::hex << parent_module->global.vcd_id_count()++;
+        ss << "@" << std::hex << const_cast<Module*>(parent_module->top())->vcd_id_count()++;
         vcd_id_str = ss.str();
     }
 };
@@ -154,12 +151,20 @@ private:
  * that do this from the template declaration.
  *
  * Public methods in this class:
- *  Value getter/setter:
- *      - operator T(): return current value of the wire
- *      - operator=(): assign a value to the wire and return reference to the object
+ *  Parent module getter:
+ *      - parent(): return pointer to parent Module
+ *      - top(): returns pointer to topmost module instance (a Testbench).
  *  Width setter/getter:
  *      - set_width(): set the width of the wire
  *      - get_width(): return the width of the wire
+ *  Value getter/setter:
+ *      - operator T(): return current value of the wire
+ *      - operator=(): assign a value to the wire and return reference to the object
+ *  X state getters/setters:
+ *      - value_is_x(): return true if current value is an "X".
+ * 		- value_was_x(): return true if current value was an "X".
+ * 		- clear_x_states(): clear both current and prior X states.
+ * 		- assign_x(): make current state "X".
  *  VCD string printer:
  *      - set_vcd_string_printer(): override default string printer
  *  "X" state related:
@@ -168,16 +173,14 @@ private:
  *      - set_x_value(): set the current X state to true or false
  *      - clear_x_states: clears both current and "was" states of 'x' false; use for initialization
  *      - assign_x(): transitions wire to "x"
- *  Parent module getter:
- *      - parent(): return pointer to parent Module
  *  Operator overloads:
  *      - The usual suspects...
  *  VCD related:
- *      - vcd_neg_edge_update(): checks if wire changed and emits to VCD if enabled.
- *      - vcd_definition(): emit VCD definition of wire
- *      - vcd_dumpvars(): dump initial values of wire
- *      - vcd_dumpon(): synonym to dumpvars
- *      - vcd_dumpoff(): dump value as 'x'
+ *      - emit_vcd_definition() - print the definition of a wire to a VCD stream.
+ *      - emit_vcd_dumpvars() - print the initial state of a wire to a VCD stream.
+ *      - emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
+ *      - emit_vcd_dumpoff() - pringt 'x' states for the wire to a VCD stream.
+ *      - emit_vcd_neg_edge_update(): emit changed values to VCD stream.
  */
 
 template <typename T>
@@ -188,53 +191,41 @@ public:
     WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm)  { constructor_common(W); }
     virtual ~WireTemplateBase() { if (is_default_printer) delete v2s; }
 
-    // Wire value getter/setter.
-    inline operator T() const { return value; }
-    inline WireTemplateBase& operator=(const T& v) {
-        // If this is the first write to this wire in the current clock, save old value.
-        // After this update, it also clearly cannot have "x" state either. 
-        if (!this->written_this_clock) {
-            was_x = is_x;
-            old_value = value; 
-            this->written_this_clock = true;
-        }
-        is_x = false;
+    // Get parent module & top level (root/testbench) pointer. Both are non-NULL.
+    const Module* parent() const { return this->parent_module; }
+    const Module* top() const { return this->root_instance; }
 
-        // If the value changed, update it, and then schedule updates to conections
-        if (value != v) {
-            value = v;
-            schedule_sensitized_modules();
-        } 
-        return *this;
-    }
-
-    // VCD string printer setter.
-    void set_vcd_string_printer(const vcd::value2string_t<T>* p) { 
-        if (is_default_printer) delete v2s;
-        v2s = p;
-        is_default_printer = false;
-    }
-
-    // width setter/getter
+    // Width setter/getter.
     void set_width(const int wv) { width = wv; }
     const int get_width() const { return width; }
+
+    // Wire value getter/setter.
+    inline operator T() const { return value; }
+    WireTemplateBase& operator=(const T& v) {
+        // printf("Calling wire assign %s %s = %s\n",
+          //   boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), (is_x ? v2s->undefined() : (*v2s)(v)).c_str());
+        if ((is_x || value != v) && sensitized_module)
+            const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+        is_x = false; value = v;
+        return *this;
+    }
 
     // X state setters/getters.
     inline bool value_is_x() const { return is_x; }
     inline bool value_was_x() const { return was_x; }
-    inline void set_x_value(const bool nx) { is_x = nx; }
     inline void clear_x_states() { is_x = was_x = false; }
     void assign_x() {
-        if (!this->written_this_clock) {
-            was_x = is_x;
-            old_value = value;
-            this->written_this_clock = true;
-        }
+        if (!is_x && sensitized_module)
+            const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
         is_x = true;
     }
 
-    // Get parent module reference.
-    const Module* parent() const { return this->parent_module; }
+    // VCD string printer setter.
+    void set_vcd_string_printer(const vcd::value2string_t<T>* printer) { 
+        if (is_default_printer) delete v2s;
+        is_default_printer = false;
+        v2s = printer;
+    }
 
     // Operator overloads.
     inline WireTemplateBase& operator+=(const T& v) { value += v; return *this; }
@@ -253,6 +244,7 @@ public:
     inline WireTemplateBase  operator--(int) { WireTemplateBase tmp = *this; --value; return tmp; }
 
     // VCD dump methods.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
     void emit_vcd_definition(std::ostream* vcd_stream) const
         { *vcd_stream << "$var wire " << width << " " << vcd_id_str << " " << wire_name << " $end" << std::endl; }
     void emit_vcd_dumpvars(std::ostream* vcd_stream) const
@@ -262,9 +254,10 @@ public:
     void emit_vcd_dumpoff(std::ostream* vcd_stream) const
         { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
-    // VCD updates on negative edge of clock: if value has changed AND we are dumping VCD, print the change.
+    // VCD updates on negative edge of clock: if value has changed print the change.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
     void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
-        if (vcd_stream && (is_x ? (is_x ^ was_x) : (was_x || value != old_value)))
+        if (is_x ? (is_x ^ was_x) : (was_x || value != old_value))
             *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
         was_x = is_x;
         old_value = value;
@@ -274,16 +267,13 @@ protected:
     // Width parameter.
     int width;
 
-    // Noting state changes in any clock.
-    bool written_this_clock;
+    // Record the "x" state of the wire. This takes precedence over the value of the wire.
+    bool is_x;
+    bool was_x;
 
     // The current and old value of the wire. "old" means the value it had at the start of a clock.
     T value;
     T old_value;
-
-    // Record the "x" state of the wire. This takes precedence over the bvalue of the wire.
-    bool is_x;
-    bool was_x;
 
 private:
     // VCD string printer.
@@ -300,8 +290,7 @@ private:
         v2s->set_width(width);
         is_default_printer = true;
 
-        // init value change flag and X states
-        written_this_clock = false;
+        // init X states
         was_x = is_x = true;
     }
 };
@@ -323,7 +312,7 @@ public:
         { constructor_common(p, nm.c_str(), NULL); }
     Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W)
         { constructor_common(p, nm.c_str(), &init); }
-    virtual ~Wire() { this->desensitize(this->parent_module); }
+    virtual ~Wire() {}
 
     // Call superclass for assignment operator.
     inline Wire& operator=(const T& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
@@ -332,14 +321,51 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
-            this->sensitize(p);
+            this->sensitized_module = const_cast<Module*>(p);
+// printf("Create %s %s: sensitizes %s\n",
+    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
             if (init) {
                 this->value = *init;
-                this->schedule_sensitized_modules();
                 this->clear_x_states();
+                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
             }
         } else
             throw std::invalid_argument("Wire must be declared inside a module");
+    }
+};
+
+/*
+ * QWire: a specialization of the WireTemplateBase class. Same as a regular wire except the parent
+ * module is NOT sensitized to a QWire instance. ('Q' is for quiet.)
+ */
+
+template <typename T, int W = -1>
+class QWire final : public WireTemplateBase<T> {
+public:
+    // Constructors/Destructor.
+    QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W)
+        { constructor_common(p, str, NULL); }
+    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W)
+        { constructor_common(p, str, &init); }
+    QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W)
+        { constructor_common(p, nm.c_str(), NULL); }
+    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W)
+        { constructor_common(p, nm.c_str(), &init); }
+    virtual ~QWire() {}
+
+    // Call superclass for assignment operator.
+    inline QWire& operator=(const T& value) { return (QWire&) WireTemplateBase<T>::operator=(value); }
+
+private:
+    // Common constructor for all four variants.
+    void constructor_common(const Module* p, const char* str, const T* init) {
+        if (p) {
+            if (init) {
+                this->value = *init;
+                this->clear_x_states();
+            }
+        } else
+            throw std::invalid_argument("QWire must be declared inside a module");
     }
 };
 
@@ -361,7 +387,7 @@ public:
         { constructor_common(p, nm.c_str(), NULL); }
     Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
         { constructor_common(p, nm.c_str(), &init); }
-    virtual ~Input() { this->desensitize(this->parent_module); }
+    virtual ~Input() {}
 
     // Call superclass for assignment operator.
     inline Input& operator=(const T& value) { return (Input&) WireTemplateBase<T>::operator=(value); }
@@ -370,12 +396,14 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
+// printf("Create %s %s: sensitizes %s\n",
+    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
             // connect input to its parent and optionally initialize
-            this->sensitize(p);
+            this->sensitized_module = const_cast<Module*>(p);
             if (init) {
                 this->value = *init;
-                this->schedule_sensitized_modules();
                 this->clear_x_states();
+                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
             }
         } else
             throw std::invalid_argument("Input must be declared inside a module");
@@ -401,10 +429,7 @@ public:
         { constructor_common(p, NULL); }
     Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
         { constructor_common(p, &init); }
-    virtual ~Output() {
-        if (this->parent_module->parent())
-            this->desensitize(this->parent_module->parent());
-    }
+    virtual ~Output() {}
 
     // Call superclass for assignment operator.
     inline Output& operator=(const T& value) { return (Output&) WireTemplateBase<T>::operator=(value); }
@@ -413,12 +438,16 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const T* init) {
         if (p) {
+// printf("Create %s %s: sensitizes %s\n",
+    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->parent()->instanceName().c_str());
             if (p->parent())
-                this->sensitize(p->parent());
+                this->sensitized_module = const_cast<Module*>(p->parent());
+            else 
+                throw std::invalid_argument("Output cannot be declared on a top-level module (i.e., a Testbench)");
             if (init) {
                 this->value = *init;
-                this->schedule_sensitized_modules();
                 this->clear_x_states();
+                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
             }
         } else
             throw std::invalid_argument("Output must be declared inside a module");

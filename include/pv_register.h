@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#include <typeinfo>
+#include <boost/core/demangle.hpp>
+
  #ifndef _PV_REGISTER_H_
  #define _PV_REGISTER_H_
 
@@ -45,74 +48,52 @@
  * assignment in Verilog.
  */
 
-// Forward declaration.
+// Forward declarations.
 namespace vcd { class writer; } 
+class Testbench;
 
 /*
  * RegisterBase base class.
  * This class is used as a base class for the Register template class as a generic
- * "bucket" for the somewhat more complex templated Register class. This class has two
- * main functions:
- *  - Maintain a doubly linked list for instances or the Register<> class
- *  - Clock all instances and advance a clock counter.
- * Constructor/destructor is protected as this class should not be instanced directly.
+ * "bucket" for the somewhat more complex templated Register class. 
  *
  * Public methods in this class:
  *  General naming:
  *      - name(): returns instance name as a string
  *      - instanceName(): returns hierarchical instance name as a string
- *  Module sensitivity:
- *      - sensitize(): sensitize a Module to this register
- *      - desensitize(): desensitize a Module from this register
- *  Clocking:
- *      - clock(): run a clock cycle on this register
  *  Module info:
- *      - parent(): return pointer to parent Module
+ *      - parent(): return pointer to parent Module.
+ *      - top(): returns pointer to topmost module instance (a Testbench).
+ *  Related to VCD dumps:
+ *      - {virtual, abstract} emit_vcd_definition() - print the definition of a register to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpvars() - print the initial state of a register to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
+ *      - {virtual, abstract} emit_vcd_dumpoff() - print 'x' states for the register to a VCD stream.
+ *
+ * Protected methods in this class:
+ *      - {virtual, abstract} pos_edge() - execute a positive edge clock on this register; pass stream pointer if dumping to a VCD.
  */
 
 class RegisterBase {
 protected:
-    // Constructors/Destructor.
-    RegisterBase(const Module* p, const char* str) : parent_module(p), global(const_cast<Module*>(p)->global), reg_name(str)
+    // Constructors/Destructor: protected so only subclass can use.
+    RegisterBase(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : NULL), register_name(str)
         { constructor_common(); }
-    RegisterBase(const Module* p, const std::string& str) : parent_module(p), global(const_cast<Module*>(p)->global), reg_name(str)
+    RegisterBase(const Module* p, const std::string& str) : parent_module(p), root_instance(p ? p->root_instance : NULL), register_name(str)
         { constructor_common(); }
-    virtual ~RegisterBase() {
-        global.dissociate_register_in_module(this, parent_module);
-        global.registerList().erase(this);
-        global.desensitize_register(this);
-    }
-
-    // Parent Module instance.
-    const Module* parent_module;
-
-    // Bit width of this register.
-    int width;
+    virtual ~RegisterBase() { const_cast<Module*>(parent_module)->remove_register_instance(self); }
 
 public: 
-    // Type, name and instance name getters.
-    inline const std::string name() const { return reg_name; }
+    // General naming methods.
+    inline const std::string name() const { return register_name; }
     const std::string instanceName() const {
-        if (parent_module == NULL) return reg_name;
-        else {
-            std::string tmp;
-            tmp = parent_module->instanceName() + "." + reg_name;
-            return tmp;
-        }
+        std::string tmp = const_cast<Module*>(parent_module)->instanceName() + "." + register_name;
+        return tmp;
     }
 
-    // Manually manage module sensitization.
-    void sensitize(const Module* theModule) { global.sensitize_to_register(theModule, this); }
-    void desensitize(const Module* theModule) { global.desensitize_to_register(theModule, this); }
-
-    // How to clock this register, to be overridden by subclass
-    virtual void pos_edge(std::ostream* vcd_stream) = 0;
-
-    // Getter for parent.
+    // Getter for parent module & top level (root/testbench) pointer. Both are non-NULL.
     const Module* parent() const { return parent_module; }
-
-    // Getter for width (in bits).
-    virtual const int get_width() const = 0;
+    const Module* top() const { return root_instance; }
 
     // VCD related.
     std::string vcd_id_str;
@@ -122,30 +103,35 @@ public:
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
 
 protected:
-    // Saving a reference from the parent module (initialized by constructor).
-    global_data_t& global;
+    // Parent modules and name.
+    const Module* parent_module;
+    const Module* root_instance;
+    const std::string register_name;
+
+    // Iterator pointing to membership in parent.
+    std::set<const RegisterBase*>::iterator self;
+
+    // How to clock this register, to be overridden by subclass
+    virtual void pos_edge(std::ostream* vcd_stream) = 0;
 
 private:
-    // Friend classes.
+    // Friend classes. TODO: verify all three need to be friends.
     friend class Module; 
+    friend class Testbench; 
     friend class vcd::writer;
-
-    // Register name.
-    const std::string reg_name;
 
     // Common constuctor code.
     void constructor_common() {
         // Parent cannot be NULL.
-        assert(parent_module != NULL);
+        if (parent_module == NULL)
+            throw std::invalid_argument("Register must be declared withing a Module");
 
-        // Associate to parent module, add to global list of wires, and auto-sensitize parent.
-        global.associate_module_register(parent_module, this);
-        global.registerList().insert(this);
-        global.sensitize_to_register(parent_module, this);
+        // Associate to parent module.
+        self = const_cast<Module*>(parent_module->top())->add_register_instance(this);
 
         // Initialize VCD ID.
         std::stringstream ss;
-        ss << "@" << std::hex << global.vcd_id_count()++;
+        ss << "@" << std::hex << const_cast<Module*>(parent_module->top())->vcd_id_count()++;
         vcd_id_str = ss.str();
     }
 };
@@ -205,10 +191,13 @@ public:
     inline T& d() { return source; }
     inline T& q() { return replica; }
 
-    // Disallow direct assignment (blocking)
+    // Disallow direct assignment (blocking). Define Verilog-like non-blocking assignment (<=).
     Register& operator=(const T& v) = delete;
     inline Register& operator<=(const T& v) {
         source = v;
+        source_x = false;
+        // printf("Calling register <= assign %s %s = %s\n",
+            // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), (source_x ? v2s->undefined() : (*v2s)(v)).c_str());
         return *this;
     }
 
@@ -246,7 +235,8 @@ public:
     Register& operator++(int) = delete;
     Register& operator--(int) = delete;
 
-    // VCD methods.
+    // VCD dump methods.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
     void emit_vcd_definition(std::ostream* vcd_stream)
         { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << " $end" << std::endl; }
     void emit_vcd_dumpvars(std::ostream* vcd_stream) const
@@ -257,8 +247,12 @@ public:
         { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
 private:
+    // Bit width of this register.
+    int width;
+
     // In order to follow more PC conventions, the term master/slave is replaced with the
     // MYSQL terminology (see https://en.wikipedia.org/wiki/Master/slave_(technology)).
+    // Both value and 'X' states are captured.
     T source;       // was "master"
     T replica;      // was "slave"
     bool source_x;
@@ -270,16 +264,14 @@ private:
 
     // Implement a positive clock edge on this register.
     inline void pos_edge(std::ostream* vcd_stream) {
-        if (replica_x ? (replica_x ^ source_x) : (source_x || replica != source)) {
-            // If VCD change dump is enabled, do so.
+        // printf("Register clocked: %s %s: old = (%s; %s) new = (%s; %s)\n",
+            // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(),
+                // (replica_x ? "X" : "_"), (replica_x ? v2s->undefined() : (*v2s)(replica)).c_str(),
+                // (source_x ? "X" : "_"), (source_x ? v2s->undefined() : (*v2s)(source)).c_str());
+        if (replica_x ? !source_x : (source_x || replica != source)) {
             if (vcd_stream)
                 *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
-
-            // schedule dependent modules
-            set_m_data_t& runq = global.runq();
-            umm_rm_iter_pair_t range = global.trigger_register_module().equal_range(this);
-            for ( ; range.first != range.second; range.first++)
-                runq.insert(runq.cend(), range.first->second);
+            const_cast<Module*>(root_instance)->trigger_module(parent_module);
         }
         replica = source;
         replica_x = source_x;
@@ -291,6 +283,9 @@ private:
         if (!p)
             throw std::invalid_argument("Register must be declared inside a module");
 
+// printf("Create %s %s: sensitizes %s\n",
+    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
+
         // Save bit width.
         this->width = (W > 0) ? W : vcd::bitwidth<T>();
 
@@ -300,11 +295,10 @@ private:
         is_default_printer = true;
 
         // Connect to parent and optionally initialize.
-        global.sensitize_to_register(parent_module, this);
         if (init) {
             replica = source = *init;
             source_x = replica_x = false;
-            global.runq().insert(global.runq().cend(), parent_module);
+            const_cast<Module*>(root_instance)->trigger_module(parent_module);
         } else
             source_x = replica_x = true;
     }

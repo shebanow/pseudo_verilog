@@ -29,7 +29,8 @@
  * allowed, driving the eval functions as needed.
  */
 
-struct Testbench : public Module {
+class Testbench : public Module {
+public:
     // Constructors, std::string and char* variants.
     Testbench(const std::string& str) : Module(NULL, str) { constructor_common(); }
     Testbench(const char* str) : Module(NULL, str) { constructor_common(); }
@@ -91,6 +92,8 @@ struct Testbench : public Module {
 
         // Run simulation cycles.
         for (clock_num = 1; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
+            // printf("------------------ CLOCK %u ------------------\n", clock_num);
+
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
@@ -114,19 +117,18 @@ struct Testbench : public Module {
                 }
             }
 
-            // Clock all flops.
-            std::ostream* vcd_stream = (writer && writer->is_open() && writer->get_emitting_change()) ? writer->get_stream() : NULL;
-            set_r_data_t& rlist = this->global.registerList();
-            for (set_r_iter_t it = rlist.begin(); it != rlist.end(); it++)
-                const_cast<RegisterBase*>(*it)->pos_edge(vcd_stream);
-
             // Now, based on changes casued by register updates, propagate until idle.
-            if (opt_idle_limit > 0 && this->global.runq().empty() && ++idle_cycles == opt_idle_limit) {
+            // int iter_count = 0;
+            if (opt_idle_limit > 0 && triggered.empty() && ++idle_cycles == opt_idle_limit) {
                 std::stringstream err_str;
                 err_str << "Simulation failed: idle cycle limit exceeded at clock cycle " << clock_num;
                 throw std::runtime_error(err_str.str());
             }
-            while (!this->global.runq().empty()) {
+            while (!triggered.empty()) {
+                // printf("    Iteration %d trigger list:\n", iter_count++);
+                // for (std::set<const Module*>::const_iterator it = triggered.begin(); it != triggered.end(); it++)
+                    // printf("\t%s\n", const_cast<Module*>(*it)->name().c_str());
+
                 // We were non-idle, so set idles cycles to 0.
                 idle_cycles = 0;
 
@@ -138,21 +140,28 @@ struct Testbench : public Module {
                 }
 
                 // Make a copy of run queue, then clear it.
-                std::set<const Module*> to_do_list(this->global.runq());
-                this->global.runq().clear();
+                std::set<const Module*> to_do_list(triggered);
+                triggered.clear();
 
                 // Iterate through to do list, updating each module
-                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
+                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++) {
+                    // printf("\t    Calling eval() on %s\n", (*it)->name().c_str());
                     const_cast<Module*>(*it)->eval();
+                }
             }
 
             // Negative edge clock calls.
             if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
-                for (set_w_iter_t it = this->global.wireList().begin(); it != this->global.wireList().end(); it++)
+                for (std::set<const WireBase*>::const_iterator it = this->w_begin(); it != this->w_end(); it++)
                     const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
                 writer->emit_neg_edge_tick(clock_num);
                 writer->emit_neg_edge_clock();
             }
+
+            // Clock all flops.
+            std::ostream* vcd_stream = (writer && writer->is_open() && writer->get_emitting_change()) ? writer->get_stream() : NULL;
+            for (std::set<const RegisterBase*>::const_iterator it = this->r_begin(); it != this->r_end(); it++)
+                const_cast<RegisterBase*>(*it)->pos_edge(vcd_stream);
 
             // End of clock: clear iteration limit.
             // Run post-clock edge against the loaded test bench.
@@ -185,6 +194,9 @@ struct Testbench : public Module {
     inline const int n_pass() const { return pass_count; }
     inline const int n_fail() const { return fail_count; }
 
+    // Keeping track of assigned VCD ID counts.
+    virtual uint32_t& vcd_id_count() { return vcd_id_counter; }
+
 protected:
     // VCD writer if enabled.
     vcd::writer* writer;
@@ -203,6 +215,24 @@ private:
 
     // Clock cycle counter.
     uint32_t clock_num;
+
+    // Module "run queue" (list of triggered modules)
+    std::set<const Module*> triggered;
+
+    // Tracking changed wires and registers
+    std::set<const WireBase*> changed_wires;
+    std::set<const RegisterBase*> changed_registers;
+
+    // Counter tio record how many VCDs have been issued.
+    uint32_t vcd_id_counter;
+
+    // Method to enqueue a Module to be evaluated ("eval()"). 
+    void trigger_module(const Module* theModule) { /* printf("trigger_module: %s\n", theModule->name().c_str()); */ triggered.insert(theModule); }
+
+    // Methods to add/remove changed wires and registers
+    void add_changed_wire(const WireBase* theWire) { changed_wires.insert(theWire); }
+    void remove_changed_wire(const WireBase* theWire) { changed_wires.erase(theWire); }
+    void add_changed_register(const RegisterBase* theRegister) { changed_registers.insert(theRegister); }
 
     // VCD helper: generate header and definitions.
     void vcd_generate_header() {
@@ -252,8 +282,9 @@ private:
         pass_count = fail_count = 0;
         exit_simulation = false;
 
-        // Reset initial clock cycle counter.
+        // Reset initial clock cycle and VCD ID counters.
         clock_num = 0;
+        vcd_id_counter = 0;
     }
 };
 

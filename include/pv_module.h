@@ -33,80 +33,90 @@ namespace vcd { class writer; }
 class Module {
 public:
     // Module constructors: variants are based on whether instance name is pass as std::string or char*.
-    Module(const Module* p, const std::string& str) : parent_module(p), nm(str) { constructor_common(); }
-    Module(const Module* p, const char* str) : parent_module(p), nm(str) { constructor_common(); }
+    Module(const Module* p, const std::string& str) : parent_module(p), root_instance(p ? p->root_instance : this), instance_name(str)
+        { constructor_common(); }
+    Module(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : this), instance_name(str)
+        { constructor_common(); }
 
-    // Module destructor. The destructor attempts to unwind all references to this module instance.
+    // Module destructor. The destructor only removes itself from the parent's instance list.
     virtual ~Module() {
-        // If module has a parent, disconnect instance of this from that parent and desensitize outputs
-        if (parent_module) {
-            global.dissociate_child_in_parent(parent_module, this);
-            for (std::set<const WireBase*>::const_iterator it = output_list.begin(); it != output_list.end(); it++)
-                global.desensitize_to_wire(parent_module, *it);
+        if (parent_module != NULL)
+            const_cast<Module*>(parent_module)->remove_module_instance(self);
+    }
+
+    // Getters to return parent and root instances.
+    inline const Module* parent() const { return parent_module; }
+    inline const Module* top() const { return root_instance; }
+
+    // Getters for name and instance name.
+    inline const std::string name() const { return instance_name; }
+    const std::string instanceName() const {
+        if (!parent_module)
+            return instance_name;
+        else {
+            std::string tmp = parent_module->instanceName() + "." + instance_name;
+            return tmp;
         }
-
-        // For all submodules instanced by this module, remove wire/register relationships.
-        global.dissociate_all_children_in_parent(this);
-        global.dissociate_all_wires_in_module(this);
-        global.desensitize_all_wires_to_module(this);
-        global.dissociate_all_registers_in_module(this);
-        global.desensitize_all_registers_to_module(this);
-
-        // Remove from RUNQ if there
-        global.runq().erase(this);
     }
 
     // Required implementation: called to update the module upon change in its sensitivity lists (wires or registers). 
     virtual void eval() = 0;
 
-    // Getters for type, name and instance name.
-    inline const std::string name() const { return nm; }
-    const std::string instanceName() const {
-        if (!parent_module)
-            return nm;
-        else {
-            std::string tmp = parent_module->instanceName() + "." + nm;
-            return tmp;
-        }
-    }
+    // Keeping track of assigned VCD ID counts.
+    virtual uint32_t& vcd_id_count() { static uint32_t tmp = 0; return tmp; }
 
-    // Getter to return parent.
-    inline const Module* parent() const { return parent_module; }
-
-    // Methods to manually sensitize/desensitize this module to wire and register connections.
-    void sensitize_module_to_wire(const WireBase* theWire) { global.sensitize_to_wire(this, theWire); }
-    void desensitize_module_to_wire(const WireBase* theWire) { global.desensitize_to_wire(this, theWire); }
-    void sensitize_module_to_register(const RegisterBase* theRegister) { global.sensitize_to_register(this, theRegister); }
-    void desensitize_module_to_register(const RegisterBase* theRegister) { global.desensitize_to_register(this, theRegister); }
+    // Virtual function overloaded in Testbench to trigger a module.
+    virtual void trigger_module(const Module* theModule) {}
 
 protected:
-    // This instances a global data structure (class static).
-    global_data_t global;
-
-private:
     // Friend classes
     friend class WireBase;
     friend class RegisterBase;
     friend class vcd::writer;
 
-    // Output list: list of Outputs in this module; need to auto-sensitize the parent of this module to these outputs.
-    std::set<const WireBase*> output_list;
+    // Methods to add submodules, wires, and register instances to the module
+    std::set<const Module*>::iterator add_module_instance(const Module* m) { return module_list.insert(module_list.end(), m); }
+    std::set<const WireBase*>::iterator add_wire_instance(const WireBase* w) { return wire_list.insert(wire_list.end(), w); }
+    std::set<const RegisterBase*>::iterator add_register_instance(const RegisterBase* r) { return register_list.insert(register_list.end(), r); }
 
-    // Module parent; NULL => top level module.
+    // Methods to remove submodules, wires, and register instances from the module
+    void remove_module_instance(std::set<const Module*>::iterator it) { module_list.erase(it); }
+    void remove_wire_instance(std::set<const WireBase*>::iterator it) { wire_list.erase(it); }
+    void remove_register_instance(std::set<const RegisterBase*>::iterator it) { register_list.erase(it); }
+
+    // Begin/End methods to allow const iterations over instance lists.
+    // For access safety, direct access to the instance lists are not allowed.
+    std::set<const Module*>::const_iterator m_begin() const { return module_list.cbegin(); }
+    std::set<const WireBase*>::const_iterator w_begin() const { return wire_list.cbegin(); }
+    std::set<const RegisterBase*>::const_iterator r_begin() const { return register_list.cbegin(); }
+    std::set<const Module*>::const_iterator m_end()   const { return module_list.cend(); }
+    std::set<const WireBase*>::const_iterator w_end()   const { return wire_list.cend(); }
+    std::set<const RegisterBase*>::const_iterator r_end()   const { return register_list.cend(); }
+
+private:
+    // Module parent; NULL => top level module. Keep track of root of Module instance tree.
     const Module* parent_module;
+    const Module* root_instance;
 
     // Module instance name.
-    const std::string nm;
+    const std::string instance_name;
 
-    // Constructor common code.
+    // Data structures to keep track of module instances.
+    std::set<const Module*> module_list;
+    std::set<const WireBase*> wire_list;
+    std::set<const RegisterBase*> register_list;
+
+    // Parent module iterator reference to this module.
+    std::set<const Module*>::iterator self;
+
+    // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
     void constructor_common() {
         if (parent_module) {
-            // Relate parent to child (aka this).
-            global.associate_parent_child(parent_module, this);
-
-            // Sensitize parent to outputs of this module.
-            for (std::set<const WireBase*>::const_iterator it = output_list.begin(); it != output_list.end(); it++)
-                global.sensitize_to_wire(parent_module, *it);
+            root_instance = parent_module->root_instance;
+            self = const_cast<Module*>(parent_module)->add_module_instance(this);
+        } else {
+            root_instance = this;
+            self = module_list.end();
         }
     }
 };
