@@ -3,3 +3,6 @@
 test/xxx
 *.o
 include/xxx
+*.vcd
+test/tlc
+test/HDR

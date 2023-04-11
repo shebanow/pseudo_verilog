@@ -86,14 +86,18 @@ public:
         if (writer != NULL && writer->is_open()) {
             vcd_generate_header();
             vcd_dumpvars(0);
-            if (writer->get_vcd_start_clock() > 0)
+            if (writer->get_vcd_start_clock() > 0) {
+                writer->emit_dumpoff();
+                writer->emit_x_clock();
                 writer->vcd_dumpoff(this);
+                writer->emit_dumpend();
+                writer->set_emitting_change(false);
+            } else
+                vcd_generate_falling_edge(0);
         }
 
         // Run simulation cycles.
         for (clock_num = 1; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
-            // printf("------------------ CLOCK %u ------------------\n", clock_num);
-
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
@@ -102,7 +106,7 @@ public:
                 // Handle VCD stop clock.
                 if (writer->get_vcd_stop_clock() > 0 && writer->get_vcd_stop_clock() == clock_num) {
                     writer->emit_pos_edge_tick(clock_num);
-                    writer->vcd_dumpoff(this);
+                    vcd_dumpoff();
                     had_stop_event = true;
                 }
 
@@ -110,12 +114,19 @@ public:
                 if (writer->get_vcd_start_clock() > 0 && writer->get_vcd_start_clock() == clock_num) {
                     writer->set_emitting_change(true);
                     writer->emit_pos_edge_tick(clock_num);
-                    writer->vcd_dumpon(this);
+                    vcd_dumpon();
                 } else {
                     writer->emit_pos_edge_tick(clock_num);
                     writer->emit_pos_edge_clock();
                 }
             }
+
+            // Clock all flops.
+            this->pos_edge(this);
+            if (writer && writer->is_open() && writer->get_emitting_change())
+                for (std::set<const RegisterBase*>::const_iterator it = changed_registers.begin(); it != changed_registers.end(); it++)
+                    const_cast<RegisterBase*>(*it)->emit_register(writer->get_stream());
+            changed_registers.clear();
 
             // Now, based on changes casued by register updates, propagate until idle.
             // int iter_count = 0;
@@ -125,10 +136,6 @@ public:
                 throw std::runtime_error(err_str.str());
             }
             while (!triggered.empty()) {
-                // printf("    Iteration %d trigger list:\n", iter_count++);
-                // for (std::set<const Module*>::const_iterator it = triggered.begin(); it != triggered.end(); it++)
-                    // printf("\t%s\n", const_cast<Module*>(*it)->name().c_str());
-
                 // We were non-idle, so set idles cycles to 0.
                 idle_cycles = 0;
 
@@ -144,24 +151,17 @@ public:
                 triggered.clear();
 
                 // Iterate through to do list, updating each module
-                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++) {
-                    // printf("\t    Calling eval() on %s\n", (*it)->name().c_str());
+                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
                     const_cast<Module*>(*it)->eval();
-                }
             }
 
             // Negative edge clock calls.
             if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
-                for (std::set<const WireBase*>::const_iterator it = this->w_begin(); it != this->w_end(); it++)
+                for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
                     const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
-                writer->emit_neg_edge_tick(clock_num);
-                writer->emit_neg_edge_clock();
+                changed_wires.clear();
+                vcd_generate_falling_edge(clock_num);
             }
-
-            // Clock all flops.
-            std::ostream* vcd_stream = (writer && writer->is_open() && writer->get_emitting_change()) ? writer->get_stream() : NULL;
-            for (std::set<const RegisterBase*>::const_iterator it = this->r_begin(); it != this->r_end(); it++)
-                const_cast<RegisterBase*>(*it)->pos_edge(vcd_stream);
 
             // End of clock: clear iteration limit.
             // Run post-clock edge against the loaded test bench.
@@ -227,12 +227,23 @@ private:
     uint32_t vcd_id_counter;
 
     // Method to enqueue a Module to be evaluated ("eval()"). 
-    void trigger_module(const Module* theModule) { /* printf("trigger_module: %s\n", theModule->name().c_str()); */ triggered.insert(theModule); }
+    void trigger_module(const Module* theModule) { triggered.insert(theModule); }
 
     // Methods to add/remove changed wires and registers
     void add_changed_wire(const WireBase* theWire) { changed_wires.insert(theWire); }
     void remove_changed_wire(const WireBase* theWire) { changed_wires.erase(theWire); }
     void add_changed_register(const RegisterBase* theRegister) { changed_registers.insert(theRegister); }
+
+    // Methods to recursively clock all registers.
+    void pos_edge(const Module* m) {
+        // Clock all local registers first.
+        for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+            const_cast<RegisterBase*>(*it)->pos_edge();
+
+        // Descend into child modules to clock their registers.
+        for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+            this->pos_edge(*it);
+    }
 
     // VCD helper: generate header and definitions.
     void vcd_generate_header() {
@@ -249,6 +260,12 @@ private:
         writer->vcd_dumpvars(this);
         writer->emit_dumpend();
         writer->set_emitting_change(true);
+    }
+
+    // VCD helper: generate a falling edge at specified clock.
+    void vcd_generate_falling_edge(const uint32_t clock_num) {
+        writer->emit_neg_edge_tick(clock_num);
+        writer->emit_neg_edge_clock();
     }
 
     // VCD helper: vcd_dumpon: performs VCD dumpon command.

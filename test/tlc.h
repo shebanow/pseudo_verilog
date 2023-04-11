@@ -92,7 +92,7 @@ struct tlc_tb : public Testbench {
 
     void tlc_usage() {
         extern char* prog_name;
-        std::cerr << "usage: " << prog_name << " <program options> tlc [-t timer_ticks] [-L cycle_limit]" << std::endl;
+        std::cerr << "usage: " << prog_name << " <program options> tlc [-t timer_ticks]" << std::endl;
         exit(1);
     }
 
@@ -102,22 +102,14 @@ struct tlc_tb : public Testbench {
         int32_t cycle_limit = 32;
 
         // Process TLC-specific command line options
-        while ((ch = getopt(argc, argv, "+t:L:")) != -1) {
+        while ((ch = getopt(argc, argv, "+t:")) != -1) {
             switch (ch) {
-            case 'L':
-                cycle_limit = atoi(optarg);
-                if (cycle_limit < 1) {
-                    std::cerr << "Illegal cycle limit " << cycle_limit << std::endl;
-                    tlc_usage();
-                }
-                break;
             case 't':
                 opt_timer_ticks = atoi(optarg);
                 break;
-            case '?':
-                tlc_usage();
-                break;
             default:
+                tlc_usage();
+                /* NOT REACHED */
                 break;
             }
         }

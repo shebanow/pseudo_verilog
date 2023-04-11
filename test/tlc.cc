@@ -14,13 +14,6 @@
  * limitations under the License.
  */
 #include <iostream>
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <iostream>
-// #include <unistd.h>
-// #include <functional>
-// #include <memory>
-// #include <strings.h>
 #include <getopt.h>
 #include "pv.h"
 #include "tlc.h"
@@ -28,11 +21,40 @@
 // program name
 char* prog_name;
 
+// program options
+bool opt_verbose = false;
+int opt_iteration_limit = -1;
+int opt_clock_limit = 32;
+bool opt_vcd_enable = false;
+std::string opt_vcd_file_name;
+int opt_vcd_start_clock = -1;
+int opt_vcd_stop_clock = -1;
+
+// from getopt manual: 2nd argument can be:
+//      no_argument: no argument, 3rd is NULL, 4th is default value
+//      required_argument: argument is required, 3rd is &int flag (or NULL if string: use optarg), 4th is default value
+static struct option options[] {
+    // generic help; must ALWAYS first
+    { "help", no_argument, NULL, 0 },
+    { "verbose", no_argument, NULL, 0 },
+
+    // other long arguments
+    { "iterations", required_argument, &opt_iteration_limit, 10 },
+    { "clocks", required_argument, &opt_clock_limit, 32 },
+    { "vcd", required_argument, NULL, 0 },
+    { "vcd_start", required_argument, &opt_vcd_start_clock, 0 },
+    { "vcd_stop", required_argument, &opt_vcd_stop_clock, -1 },
+
+    // null termination
+    { 0, 0, 0, 0 }
+};
+
 void usage(int argc, char** argv) {
-    std::cerr << "usage: " << argv[0] << " <fmod options> <model name> <model options>\n    where <fmod options> are:" << std::endl;
+    std::cerr << "usage: " << argv[0] << "    where options are:" << std::endl;
     std::cerr << "        -h, --help\t:\tprints help" << std::endl;
-    std::cerr << "        -v{n}, --verbose{=n}\t:\tbe verbose (at optional level)" << std::endl;
+    std::cerr << "        -v, --verbose\t:\tbe verbose" << std::endl;
     std::cerr << "        -L{n}, --iterations={n}\t:\tsets the max number of eval() iterations per clock cycle" << std::endl;
+    std::cerr << "        -c{n}, --clocks={n}\t:\tsets the max number of clock cycles" << std::endl;
     std::cerr << "        --vcd <file>\t:\tdump a VCD file for the simulation" << std::endl;
     std::cerr << "        --vcd_start=<n>\t:\tset a start time for VCD dumping (default = 0)" << std::endl;
     std::cerr << "        --vcd_stop=<n>\t:\tset a stop time for VCD dumping (default is none)" << std::endl;
@@ -45,29 +67,89 @@ void usage(int argc, char** argv) {
 
 int main(int argc, char **argv) {
     tlc_tb* dut_tb;
+    bool opt_vcd_enable = false;
+    std::string opt_vcd_file_name;
 
-    dut_tb = new tlc_tb("tlc_tb");
-    argc--; argv++; optind = 0;
-    dut_tb->main(argc, argv);
+    int ch;
+    int option_index;
 
-/*
-    // if VCD is enabled, create the file
-    if (simulator::opt_vcd_enable) {
-        simulator::vcd_file = new vcd::writer(simulator::opt_vcd_file_name);
-        if (!simulator::vcd_file->is_open()) {
-            delete simulator::vcd_file;
-            exit(1);
+    // option processing
+    prog_name = argv[0];
+    while ((ch = getopt_long(argc, argv, "+hvL:c:", options, &option_index)) != -1) {
+        switch (ch) {
+        // NOTE: non-int long opts are not handled in the '0' case yet.
+        // If any, will need to add a check for that and implement as a special check based on option_index
+        // (strcmp(options[option_index].name, "<option>") == 0).
+        case 0:
+            if (!option_index) usage(argc, argv);
+            else if (option_index == 1) 
+                opt_verbose = optarg ? (atoi(optarg) != 0) : true;
+            else if (option_index == 4) { // vcd
+                opt_vcd_enable = true;
+                opt_vcd_file_name = optarg;
+            } else if (options[option_index].flag != NULL)
+                *options[option_index].flag = atoi(optarg);
+            break;
+        case 'v':
+            opt_verbose = optarg ? atoi(optarg) : 1;
+            break;
+        case 'L':
+            opt_iteration_limit = atoi(optarg);
+            break;
+        case 'c':
+            opt_clock_limit = atoi(optarg);
+            break;
+        case 'h':
+        case '?':
+        case ':':
+            usage(argc, argv);
+            break;
+        default:
+            break;
         }
     }
 
-    // if VCD is enabled, generate the header and emit hierarchy definition ahead of simulation
-    // fmod is using an assumed clock speed of 100 MHz with a 1ns timescale (10 ticks per clock)
-    if (simulator::opt_vcd_enable) {
-        simulator::vcd_file->set_clock_freq(100e6);
-        simulator::vcd_generate_header("1.0", vcd::TS_time::t1, vcd::TS_unit::ns);
-        simulator::vcd_dumpvars(0);
+    // Trim argc/argv of already processed args.
+    argc -= optind;
+    argv += optind;
+    optind = 0;
+
+    // Create testbench for TLC and process remaining command line args (should be none).
+    dut_tb = new tlc_tb("tlc_tb");
+    dut_tb->main(argc, argv);
+
+    // Option error checking.
+    if (opt_vcd_start_clock >= 0 && opt_vcd_stop_clock >= 0 && opt_vcd_start_clock >= opt_vcd_stop_clock) {
+        std::cerr << "VCD start clock (" << opt_vcd_start_clock << ") must be less than stop clock (" << opt_vcd_stop_clock << ")\n";
+        exit(1);
     }
-*/
+
+    // Handle simulator options.
+    if (opt_iteration_limit >= 0)
+        dut_tb->set_iteration_limit(opt_iteration_limit);
+    if (opt_clock_limit >= 0)
+        dut_tb->set_cycle_limit(opt_clock_limit);
+
+    // if VCD is enabled, create the file
+    vcd::writer* vcd_file = NULL;
+    if (opt_vcd_enable) {
+        // Open VCD file.
+        vcd_file = new vcd::writer(opt_vcd_file_name);
+        if (!vcd_file->is_open()) {
+            delete vcd_file;
+            exit(1);
+        }
+
+        // handle VCD options
+        if (opt_vcd_start_clock >= 0) 
+            vcd_file->set_vcd_start_clock(opt_vcd_start_clock);
+        if (opt_vcd_stop_clock >= 0)
+            vcd_file->set_vcd_stop_clock(opt_vcd_stop_clock);
+
+        // Set operating point and install VCD writer.
+        vcd_file->set_operating_point(100e6, vcd::TS_time::t1, vcd::TS_unit::ns);
+        dut_tb->set_vcd_writer(vcd_file);
+    }
 
     // Run TLC test
     dut_tb->begin_test();
@@ -80,7 +162,8 @@ int main(int argc, char **argv) {
     dut_tb->end_test_pass("TLC passed after %d clocks\n", dut_tb->get_clock());
 
     // sim complete
+    if (vcd_file) delete vcd_file;
     delete dut_tb;
-    return 0;
+return 0;
 }
 

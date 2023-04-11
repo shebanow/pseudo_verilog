@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#include <typeinfo>
-#include <boost/core/demangle.hpp>
-
  #ifndef _PV_REGISTER_H_
  #define _PV_REGISTER_H_
 
@@ -101,6 +98,7 @@ public:
     virtual void emit_vcd_dumpvars(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpon(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
+    virtual void emit_register(std::ostream* vcd_stream) const = 0;
 
 protected:
     // Parent modules and name.
@@ -112,13 +110,11 @@ protected:
     std::set<const RegisterBase*>::iterator self;
 
     // How to clock this register, to be overridden by subclass
-    virtual void pos_edge(std::ostream* vcd_stream) = 0;
+    virtual void pos_edge() = 0;
 
 private:
-    // Friend classes. TODO: verify all three need to be friends.
-    friend class Module; 
+    // Friend class.
     friend class Testbench; 
-    friend class vcd::writer;
 
     // Common constuctor code.
     void constructor_common() {
@@ -127,11 +123,11 @@ private:
             throw std::invalid_argument("Register must be declared withing a Module");
 
         // Associate to parent module.
-        self = const_cast<Module*>(parent_module->top())->add_register_instance(this);
+        self = const_cast<Module*>(parent_module)->add_register_instance(this);
 
         // Initialize VCD ID.
         std::stringstream ss;
-        ss << "@" << std::hex << const_cast<Module*>(parent_module->top())->vcd_id_count()++;
+        ss << "@" << std::hex << const_cast<Module*>(root_instance)->vcd_id_count()++;
         vcd_id_str = ss.str();
     }
 };
@@ -157,12 +153,9 @@ private:
  *  Width setter/getter:
  *      - set_width(): set the width of the register (overriding template)
  *      - get_width(): return the width of the register
- *  "X" state related:
+ *  "X" state getters:
  *      - value_is_x(): returns true if replica value is "x"
  *      - value_will_be_x(): returns true if source value is "x"
- *      - set_x_value(): set the source X state to true or false
- *      - clear_x_states: clears both source and replica states of 'x' false; use for initialization
- *      - assign_x(): sets source = "x"
  *  VCD related:
  *      - set_vcd_string_printer(): override default string printer; caller responsible for any object delete
  *      - emit_vcd_definition(): emit VCD definition of reg
@@ -196,8 +189,6 @@ public:
     inline Register& operator<=(const T& v) {
         source = v;
         source_x = false;
-        // printf("Calling register <= assign %s %s = %s\n",
-            // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), (source_x ? v2s->undefined() : (*v2s)(v)).c_str());
         return *this;
     }
 
@@ -205,12 +196,9 @@ public:
     void set_width(const int wv) { width = wv; }
     const int get_width() const { return width; }
 
-    // X state setters/getters.
+    // X state getters.
     inline bool value_is_x() const { return replica_x; }
     inline bool value_will_be_x() const { return source_x; }
-    inline void set_x_value(const bool nx) { source_x = nx; }
-    inline void clear_x_states() { source_x = replica_x = false; }
-    inline void assign_x() { source_x = true; }
 
     // VCD string printer setter.
     void set_vcd_string_printer(const vcd::value2string_t<T>* p) { 
@@ -237,14 +225,18 @@ public:
 
     // VCD dump methods.
     // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
-    void emit_vcd_definition(std::ostream* vcd_stream)
+    inline void emit_vcd_definition(std::ostream* vcd_stream)
         { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << " $end" << std::endl; }
-    void emit_vcd_dumpvars(std::ostream* vcd_stream) const
+    inline void emit_vcd_dumpvars(std::ostream* vcd_stream) const
         { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    void emit_vcd_dumpon(std::ostream* vcd_stream) const
+    inline void emit_vcd_dumpon(std::ostream* vcd_stream) const
         { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    void emit_vcd_dumpoff(std::ostream* vcd_stream) const
+    inline void emit_vcd_dumpoff(std::ostream* vcd_stream) const
         { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+
+    // VCD emit method. Should NOT be called if vcd_stream is NULL.
+    inline void emit_register(std::ostream* vcd_stream) const
+        { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
 private:
     // Bit width of this register.
@@ -263,15 +255,10 @@ private:
     bool is_default_printer;
 
     // Implement a positive clock edge on this register.
-    inline void pos_edge(std::ostream* vcd_stream) {
-        // printf("Register clocked: %s %s: old = (%s; %s) new = (%s; %s)\n",
-            // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(),
-                // (replica_x ? "X" : "_"), (replica_x ? v2s->undefined() : (*v2s)(replica)).c_str(),
-                // (source_x ? "X" : "_"), (source_x ? v2s->undefined() : (*v2s)(source)).c_str());
+    inline void pos_edge() {
         if (replica_x ? !source_x : (source_x || replica != source)) {
-            if (vcd_stream)
-                *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
             const_cast<Module*>(root_instance)->trigger_module(parent_module);
+            const_cast<Module*>(root_instance)->add_changed_register(this);
         }
         replica = source;
         replica_x = source_x;
@@ -282,9 +269,6 @@ private:
         // Error checking.
         if (!p)
             throw std::invalid_argument("Register must be declared inside a module");
-
-// printf("Create %s %s: sensitizes %s\n",
-    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
 
         // Save bit width.
         this->width = (W > 0) ? W : vcd::bitwidth<T>();

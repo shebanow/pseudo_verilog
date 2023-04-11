@@ -14,27 +14,25 @@
  * limitations under the License.
  */
 
-#include <typeinfo>
-#include <boost/core/demangle.hpp>
-
 #ifndef _PV_WIRES_H_
 #define _PV_WIRES_H_
 
 /*
- * This header actually defines 5 classes/subclasses:
+ * This header actually defines 6 classes/subclasses:
  *
- *                      ┌──────────────────────┐
- *                      │       WireBase       │
- *                      └───────────┬──────────┘
- *                                  │
- *                      ┌───────────▼──────────┐
- *                      │ WireTemplateBase<T>  │
- *                      └───────────┬──────────┘
- *               ┌──────────────────┼─────────────────┐
- *        ┌──────▼──────┐    ┌──────▼──────┐   ┌──────▼──────┐
- *        │ Input<T,W>  │    │ Wire<T, W>  │   │ Output<T,W> │
- *        └─────────────┘    └─────────────┘   └─────────────┘
- * 
+ *                         ┌─────────────────────┐
+ *                         │      WireBase       │
+ *                         └──────────┬──────────┘
+ *                                    │
+ *                         ┌──────────▼──────────┐
+ *                         │ WireTemplateBase<T> │
+ *                         └──────────┬──────────┘
+ *                                    │
+ *        ┌──────────────────┬────────┴────────┬─────────────────┐
+ * ┌──────▼──────┐    ┌──────▼──────┐   ┌──────▼──────┐   ┌──────▼──────┐
+ * │ Input<T,W>  │    │  Wire<T,W>  │   │ QWire<T,W>  │   │ Output<T,W> │
+ * └─────────────┘    └─────────────┘   └─────────────┘   └─────────────┘
+ *
  * The superclass WireBase is at the top of the hierarchy. It provides the basis for all wire types:
  * its instance name (local and global), means to sensitize/desensitize this wire to a Module, and
  * support for VCD dumps on a wire. It's not a template class so as to allow all wire instances to be
@@ -44,18 +42,15 @@
  * are implemented in this subclass. In addition, means to get wire state/set wire state are included along
  * with trigger propogation to all connected modules. Lastly, VCD change detection support is also included.
  *
- * Lastly, below the WireTemplateBase<T> subclass are three variant subsubclasses, Inputs, Wires, and Outputs.
+ * Lastly, below the WireTemplateBase<T> subclass are four variant subsubclasses, Inputs, Wires, QWires, and Outputs.
  * Inputs are intended to be instances as input ports on a module, and the subsubclass auto-sensitizes its
  * parent container to input changes. The Wire subsubclass are intended to be instances with its parent container
- * module as well,and also auto-sensitizes its parent to value changes. Functionally, Inputs and Wires are identical.
- * Finally, Outputs are intended to be instances as output ports of a modile, and the subsubclass auto-sensitizes its
- * grandparent (if it exists) to value changes. All three subsubclasses are "final", meaning they cannot be further
- * subclassed. All three classes support setting a custom wire width (in bits) as well as allowing for initialization
+ * module as well,and also auto-sensitizes its parent to value changes. QWires are like Wires except changes to
+ * QWires DO NOT cause reevaluation of their container Module.  Functionally, Inputs, Wires, and QWires are identical.
+ * Finally, Outputs are intended to be instances as output ports of a module, and the subsubclass auto-sensitizes its
+ * grandparent (if it exists) to value changes. All four subsubclasses are "final", meaning they cannot be further
+ * subclassed. All four classes also support setting a custom wire width (in bits) as well as allowing for initialization
  * when instanced (non-initialized begin in an 'x' state).
- *
- * Note, under consideration is the addition of an QWire subsubclass, similar to Wire except that its does
- * not auto-sensitize its parent. The main purpose of having a QWire type would be to allow VCD dumps of intermediate
- * nodes without autotriggering container modules.
  */
 
 // VCD class forward declaration.
@@ -71,6 +66,8 @@
  *      - name(): return non-hierarchical name of this wire.
  *      - instanceName(): return hierarchical name of this wire.
  *  Getters:
+ *      - parent(): return pointer to parent Module
+ *      - top(): returns pointer to topmost module instance (a Testbench).
  *      - {virtual, abstract} get_width() - returns width of wire in bits.
  *  Related to VCD dumps:
  *      - {virtual, abstract} emit_vcd_definition() - print the definition of a wire to a VCD stream.
@@ -96,6 +93,10 @@ public:
         std::string tmp = parent_module->instanceName() + "." + wire_name;
         return tmp;
     }
+
+    // Get parent module & top level (root/testbench) pointer. Both are non-NULL.
+    inline const Module* parent() const { return parent_module; }
+    inline const Module* top() const { return root_instance; }
 
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
@@ -130,12 +131,12 @@ private:
             throw std::invalid_argument("Wire must be declared withing a Module");
 
         // Associate to parent module. Default is no sensitization.
-        self = const_cast<Module*>(parent_module->top())->add_wire_instance(this);
+        self = const_cast<Module*>(parent_module)->add_wire_instance(this);
         sensitized_module = NULL;
 
         // Initialize VCD ID.
         std::stringstream ss;
-        ss << "@" << std::hex << const_cast<Module*>(parent_module->top())->vcd_id_count()++;
+        ss << "@" << std::hex << const_cast<Module*>(root_instance)->vcd_id_count()++;
         vcd_id_str = ss.str();
     }
 };
@@ -151,9 +152,6 @@ private:
  * that do this from the template declaration.
  *
  * Public methods in this class:
- *  Parent module getter:
- *      - parent(): return pointer to parent Module
- *      - top(): returns pointer to topmost module instance (a Testbench).
  *  Width setter/getter:
  *      - set_width(): set the width of the wire
  *      - get_width(): return the width of the wire
@@ -163,7 +161,6 @@ private:
  *  X state getters/setters:
  *      - value_is_x(): return true if current value is an "X".
  * 		- value_was_x(): return true if current value was an "X".
- * 		- clear_x_states(): clear both current and prior X states.
  * 		- assign_x(): make current state "X".
  *  VCD string printer:
  *      - set_vcd_string_printer(): override default string printer
@@ -191,10 +188,6 @@ public:
     WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm)  { constructor_common(W); }
     virtual ~WireTemplateBase() { if (is_default_printer) delete v2s; }
 
-    // Get parent module & top level (root/testbench) pointer. Both are non-NULL.
-    const Module* parent() const { return this->parent_module; }
-    const Module* top() const { return this->root_instance; }
-
     // Width setter/getter.
     void set_width(const int wv) { width = wv; }
     const int get_width() const { return width; }
@@ -202,10 +195,11 @@ public:
     // Wire value getter/setter.
     inline operator T() const { return value; }
     WireTemplateBase& operator=(const T& v) {
-        // printf("Calling wire assign %s %s = %s\n",
-          //   boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), (is_x ? v2s->undefined() : (*v2s)(v)).c_str());
-        if ((is_x || value != v) && sensitized_module)
+        if ((is_x || value != v) && sensitized_module) {
             const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+            const_cast<Module*>(root_instance)->add_changed_wire(this);
+        } else
+            const_cast<Module*>(root_instance)->remove_changed_wire(this);
         is_x = false; value = v;
         return *this;
     }
@@ -213,7 +207,6 @@ public:
     // X state setters/getters.
     inline bool value_is_x() const { return is_x; }
     inline bool value_was_x() const { return was_x; }
-    inline void clear_x_states() { is_x = was_x = false; }
     void assign_x() {
         if (!is_x && sensitized_module)
             const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
@@ -275,6 +268,9 @@ protected:
     T value;
     T old_value;
 
+    // Method to wipe both past and present X states w/o triggering an eval.
+    inline void clear_x_states() { is_x = was_x = false; }
+
 private:
     // VCD string printer.
     vcd::value2string_t<T>* v2s;
@@ -322,8 +318,6 @@ private:
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
             this->sensitized_module = const_cast<Module*>(p);
-// printf("Create %s %s: sensitizes %s\n",
-    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
             if (init) {
                 this->value = *init;
                 this->clear_x_states();
@@ -396,8 +390,6 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
-// printf("Create %s %s: sensitizes %s\n",
-    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->instanceName().c_str());
             // connect input to its parent and optionally initialize
             this->sensitized_module = const_cast<Module*>(p);
             if (init) {
@@ -438,8 +430,6 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const T* init) {
         if (p) {
-// printf("Create %s %s: sensitizes %s\n",
-    // boost::core::demangle(typeid(*this).name()).c_str(), this->instanceName().c_str(), p->parent()->instanceName().c_str());
             if (p->parent())
                 this->sensitized_module = const_cast<Module*>(p->parent());
             else 

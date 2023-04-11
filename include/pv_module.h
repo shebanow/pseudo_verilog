@@ -62,13 +62,22 @@ public:
     // Required implementation: called to update the module upon change in its sensitivity lists (wires or registers). 
     virtual void eval() = 0;
 
+    // Virtual function to evaluate positive edge flops.
+    virtual void pos_edge(const Module* m) {}
+
+    // Required implementation: methods to keep track of changed/unchanged wires and changed registers.
+    // Actual implementation in Testbench; calls in Wires/Registers should be to root_instance.
+    virtual void add_changed_wire(const WireBase* theWire) {}
+    virtual void remove_changed_wire(const WireBase* theWire) {}
+    virtual void add_changed_register(const RegisterBase* theRegister) {}
+
     // Keeping track of assigned VCD ID counts.
     virtual uint32_t& vcd_id_count() { static uint32_t tmp = 0; return tmp; }
 
     // Virtual function overloaded in Testbench to trigger a module.
     virtual void trigger_module(const Module* theModule) {}
 
-protected:
+// protected:
     // Friend classes
     friend class WireBase;
     friend class RegisterBase;
