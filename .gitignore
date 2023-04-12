@@ -6,3 +6,4 @@ include/xxx
 *.vcd
 test/tlc
 test/HDR
+test/tlc

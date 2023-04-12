@@ -1,0 +1,28 @@
+[*]
+[*] GTKWave Analyzer v3.3.107 (w)1999-2020 BSI
+[*] Wed Apr 12 17:08:50 2023
+[*]
+[dumpfile] "/Users/shebanow/Documents/GitHub/pseudo_verilog/test/tlc.vcd"
+[dumpfile_mtime] "Tue Apr 11 05:39:10 2023"
+[dumpfile_size] 1143
+[savefile] "/Users/shebanow/Documents/GitHub/pseudo_verilog/test/tlc.gtkw"
+[timestart] 9
+[size] 1626 600
+[pos] 662 251
+*-5.611532 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tlc_tb.
+[sst_width] 193
+[signals_width] 167
+[sst_expanded] 1
+[sst_vpaned_height] 167
+@28
+tlc_tb.clk
+tlc_tb.iTLC.ns_cycle
+tlc_tb.iTLC.ns_state[1:0]
+tlc_tb.iTLC.north_south[1:0]
+tlc_tb.iTLC.ew_state[1:0]
+tlc_tb.iTLC.east_west[1:0]
+@23
+tlc_tb.iTLC.timer[7:0]
+[pattern_trace] 1
+[pattern_trace] 0
