@@ -88,6 +88,9 @@ public:
         return tmp;
     }
 
+    // Virtual copy assignment operator
+    virtual RegisterBase& operator=(const RegisterBase& v) { return *this; }
+
     // Getter for parent module & top level (root/testbench) pointer. Both are non-NULL.
     const Module* parent() const { return parent_module; }
     const Module* top() const { return root_instance; }
@@ -177,23 +180,40 @@ public:
         { constructor_common(p, str.c_str(), NULL); }
     Register(const Module* p, const std::string& str, const T& init) : RegisterBase(p, str)
         { constructor_common(p, str.c_str(), &init); }
-    virtual ~Register() { if (is_default_printer) delete v2s; }
+    virtual ~Register() {
+        if (is_default_printer && v2s != NULL) {
+            is_default_printer = false;
+            delete v2s;
+            v2s = NULL;
+        }
+    }
 
     // Getters.
     inline operator T() const { return replica; }
     inline T& d() { return source; }
     inline T& q() { return replica; }
 
-    // Disallow direct assignment (blocking). Define Verilog-like non-blocking assignment (<=).
+    // Disallow direct assignment (blocking).
     Register& operator=(const T& v) = delete;
-    inline Register& operator<=(const T& v) {
-        source = v;
+
+    // General register->register non-blocking assignment (<=).
+    template <typename U>
+    Register& operator<=(const Register<U>& v) {
+        source_x = v.replica_x;
+        source = v.replica;
+        return *this;
+    }
+
+    // General non-register->register non-blocking assignment (<=).
+    template <typename U>
+    Register& operator<=(const U& v) {
         source_x = false;
+        source = v;
         return *this;
     }
 
     // Width setter/getter.
-    void set_width(const int wv) { width = wv; }
+    void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
     const int get_width() const { return width; }
 
     // X state getters.

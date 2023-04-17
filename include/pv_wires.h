@@ -101,6 +101,9 @@ public:
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
 
+    // Virtual copy assignment operator
+    virtual WireBase& operator=(const WireBase& v) { return *this; }
+
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
     // to execute these methods in a type-independent manner, hence the virtual functions below.
@@ -186,21 +189,54 @@ public:
     // Constructor/Destructor.
     WireTemplateBase(const Module* p, const char* str, const int W) : WireBase(p, str) { constructor_common(W); }
     WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm)  { constructor_common(W); }
-    virtual ~WireTemplateBase() { if (is_default_printer) delete v2s; }
+    virtual ~WireTemplateBase() {
+        if (is_default_printer && v2s != NULL) {
+            is_default_printer = false;
+            delete v2s;
+            v2s = NULL;
+        }
+    }
 
     // Width setter/getter.
-    void set_width(const int wv) { width = wv; }
+    void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
     const int get_width() const { return width; }
 
     // Wire value getter/setter.
     inline operator T() const { return value; }
     WireTemplateBase& operator=(const T& v) {
-        if ((is_x || value != v) && sensitized_module) {
-            const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+        // Change logic:
+        // 
+        //  was_x   is_x    v != old_value  v != value  |   change?     trigger?
+        //  --------------------------------------------------------------------
+        //  0       0       0               0           |   N           N
+        //  0       0       0               1           |   N           Y
+        //  0       0       1               0           |   Y           N
+        //  0       0       1               1           |   Y           Y
+        //  0       1       0               -           |   N           Y
+        //  0       1       1               -           |   Y           Y
+        //  1       0       -               0           |   Y           N
+        //  1       0       -               1           |   Y           Y
+        //  1       1       -               -           |   Y           Y
+        // 
+        if (was_x || v != old_value)
             const_cast<Module*>(root_instance)->add_changed_wire(this);
-        } else
+        else
             const_cast<Module*>(root_instance)->remove_changed_wire(this);
-        is_x = false; value = v;
+        if ((is_x || v != value) && sensitized_module != NULL)
+            const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+
+        // Clear any X state and save new value.
+        is_x = false;
+        value = v;
+
+        return *this;
+    }
+
+    // General wire->wire assignment.
+    template <typename U>
+    WireTemplateBase& operator=(const WireTemplateBase<U>& v) {
+        is_x = v.is_x;
+        value = v.value;
         return *this;
     }
 
@@ -208,8 +244,18 @@ public:
     inline bool value_is_x() const { return is_x; }
     inline bool value_was_x() const { return was_x; }
     void assign_x() {
-        if (!is_x && sensitized_module)
+        // If wire was an X at the start of the clock, then wire is unchanged.
+        // Otherwise, mark it as changed.
+        if (was_x)
+            const_cast<Module*>(root_instance)->remove_changed_wire(this);
+        else
+            const_cast<Module*>(root_instance)->add_changed_wire(this);
+
+        // If the wire is not X, treat this as a potential change and force eval on any sensitized module.
+        if (!is_x && sensitized_module != NULL)
             const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+
+        // Wire is now X.
         is_x = true;
     }
 
