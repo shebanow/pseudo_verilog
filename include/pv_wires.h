@@ -79,11 +79,13 @@
 
 class WireBase {
 protected:
-    // Constructor/Destructor: protected so only subclass can use.
+    // Constructor/Destructor: protected so only subclass can use. 
+    // Disable copy constructor.
     WireBase(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(str)
         { constructor_common(); }
     WireBase(const Module* p, const std::string& nm) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(nm)
         { constructor_common(); }
+    WireBase(const WireBase& w) = delete;
     virtual ~WireBase() { const_cast<Module*>(parent_module)->remove_wire_instance(self); }
 
 public:
@@ -100,9 +102,6 @@ public:
 
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
-
-    // Virtual copy assignment operator
-    virtual WireBase& operator=(const WireBase& v) { return *this; }
 
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
@@ -187,18 +186,13 @@ template <typename T>
 class WireTemplateBase : public WireBase {
 public:
     // Constructor/Destructor.
-    WireTemplateBase(const Module* p, const char* str, const int W) : WireBase(p, str) { constructor_common(W); }
-    WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm)  { constructor_common(W); }
-    virtual ~WireTemplateBase() {
-        if (is_default_printer && v2s != NULL) {
-            is_default_printer = false;
-            delete v2s;
-            v2s = NULL;
-        }
-    }
+    WireTemplateBase(const Module* p, const char* str, const int W) : WireBase(p, str), v2s(def_printer) { constructor_common(W); }
+    WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm), v2s(def_printer) { constructor_common(W); }
+    virtual ~WireTemplateBase() {}
 
     // Width setter/getter.
-    void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
+    // void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
+    void set_width(const int wv) { width = wv; v2s.set_width(width); }
     const int get_width() const { return width; }
 
     // Wire value getter/setter.
@@ -232,13 +226,9 @@ public:
         return *this;
     }
 
-    // General wire->wire assignment.
-    template <typename U>
-    WireTemplateBase& operator=(const WireTemplateBase<U>& v) {
-        is_x = v.is_x;
-        value = v.value;
-        return *this;
-    }
+    // General wire->wire assignment (same or different source type).
+    WireTemplateBase& operator=(const WireTemplateBase& v) { common_copy_assignment<bool>(v); return *this; }
+    template <typename U> WireTemplateBase& operator=(const WireTemplateBase<U>& v) { common_copy_assignment<U>(v); return *this; }
 
     // X state setters/getters.
     inline bool value_is_x() const { return is_x; }
@@ -259,12 +249,8 @@ public:
         is_x = true;
     }
 
-    // VCD string printer setter.
-    void set_vcd_string_printer(const vcd::value2string_t<T>* printer) { 
-        if (is_default_printer) delete v2s;
-        is_default_printer = false;
-        v2s = printer;
-    }
+    // VCD string printer setter (override default).
+    inline void set_vcd_string_printer(const vcd::value2string_t<T>& printer) { v2s = printer; }
 
     // Operator overloads.
     inline WireTemplateBase& operator+=(const T& v) { value += v; return *this; }
@@ -287,17 +273,18 @@ public:
     void emit_vcd_definition(std::ostream* vcd_stream) const
         { *vcd_stream << "$var wire " << width << " " << vcd_id_str << " " << wire_name << " $end" << std::endl; }
     void emit_vcd_dumpvars(std::ostream* vcd_stream) const
-        { *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     void emit_vcd_dumpon(std::ostream* vcd_stream) const
-        { *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     void emit_vcd_dumpoff(std::ostream* vcd_stream) const
-        { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
     // VCD updates on negative edge of clock: if value has changed print the change.
     // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
     void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
         if (is_x ? (is_x ^ was_x) : (was_x || value != old_value))
-            *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
+            // *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
+            *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
         was_x = is_x;
         old_value = value;
     }
@@ -318,21 +305,32 @@ protected:
     inline void clear_x_states() { is_x = was_x = false; }
 
 private:
-    // VCD string printer.
-    vcd::value2string_t<T>* v2s;
-    bool is_default_printer;
+    // VCD string printer (default)
+    vcd::value2string_t<T> def_printer = { value }; 
+    vcd::value2string_t<T>& v2s;
+
+    // Common code for copy assignment operator=().
+    template <typename U>
+    void common_copy_assignment(const WireTemplateBase<U>& v) {
+        // If this assigment changes the wire, trigger any sensitized module.
+        if ((is_x != v.is_x || (!is_x && !v.is_x && value != v.value)) && sensitized_module)
+            const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
+
+        // Copy over X and values states.
+        is_x = v.is_x;
+        value = v.value;
+
+        // If the new value is changed (or not) relative to initial value at the start of the clock, update change state.
+        if (is_x != was_x || (!is_x && !was_x && value != old_value))
+            const_cast<Module*>(root_instance)->add_changed_wire(this);
+        else
+            const_cast<Module*>(root_instance)->remove_changed_wire(this);
+    }
 
     // Common constructor code.
+    // Set default VCD string printer and initialize wire to X state.
     void constructor_common(const int W) {
-        // set default width
-        width = (W > 0) ? W : vcd::bitwidth<T>();
-
-        // set up default VCD string printer
-        v2s = new vcd::value2string_t<T>(value); 
-        v2s->set_width(width);
-        is_default_printer = true;
-
-        // init X states
+        v2s.set_width((W > 0) ? W : vcd::bitwidth<T>());
         was_x = is_x = true;
     }
 };

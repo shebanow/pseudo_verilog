@@ -88,9 +88,6 @@ public:
         return tmp;
     }
 
-    // Virtual copy assignment operator
-    virtual RegisterBase& operator=(const RegisterBase& v) { return *this; }
-
     // Getter for parent module & top level (root/testbench) pointer. Both are non-NULL.
     const Module* parent() const { return parent_module; }
     const Module* top() const { return root_instance; }
@@ -172,21 +169,15 @@ template <typename T, int W = -1>
 class Register final : public RegisterBase {
 public:
     // Constructors/Destructor.
-    Register(const Module* p, const char* str) : RegisterBase(p, str)
+    Register(const Module* p, const char* str) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str, NULL); }
-    Register(const Module* p, const char* str, const T& init) : RegisterBase(p, str)
+    Register(const Module* p, const char* str, const T& init) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str, &init); }
-    Register(const Module* p, const std::string& str) : RegisterBase(p, str)
+    Register(const Module* p, const std::string& str) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str.c_str(), NULL); }
-    Register(const Module* p, const std::string& str, const T& init) : RegisterBase(p, str)
+    Register(const Module* p, const std::string& str, const T& init) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str.c_str(), &init); }
-    virtual ~Register() {
-        if (is_default_printer && v2s != NULL) {
-            is_default_printer = false;
-            delete v2s;
-            v2s = NULL;
-        }
-    }
+    virtual ~Register() {}
 
     // Getters.
     inline operator T() const { return replica; }
@@ -196,11 +187,18 @@ public:
     // Disallow direct assignment (blocking).
     Register& operator=(const T& v) = delete;
 
-    // General register->register non-blocking assignment (<=).
-    template <typename U>
-    Register& operator<=(const Register<U>& v) {
+    // Same type register->register non-blocking assignment (<=).
+    Register& operator<=(const Register& v) {
         source_x = v.replica_x;
         source = v.replica;
+        return *this;
+    }
+
+    // General non-register->register non-blocking assignment (<=).
+    template <typename U>
+    Register& operator<=(const Register<U>& v) {
+        source_x = v.source_x;
+        source = v.source;
         return *this;
     }
 
@@ -213,7 +211,7 @@ public:
     }
 
     // Width setter/getter.
-    void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
+    void set_width(const int wv) { width = wv; v2s.set_width(width); }
     const int get_width() const { return width; }
 
     // X state getters.
@@ -221,11 +219,7 @@ public:
     inline bool value_will_be_x() const { return source_x; }
 
     // VCD string printer setter.
-    void set_vcd_string_printer(const vcd::value2string_t<T>* p) { 
-        if (is_default_printer) delete v2s;
-        v2s = p;
-        is_default_printer = false;
-    }
+    void set_vcd_string_printer(const vcd::value2string_t<T>& printer) { v2s = printer; }
 
     // Disallow op-assignments.
     Register& operator+=(const T& v) = delete;
@@ -248,15 +242,15 @@ public:
     inline void emit_vcd_definition(std::ostream* vcd_stream)
         { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << " $end" << std::endl; }
     inline void emit_vcd_dumpvars(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     inline void emit_vcd_dumpon(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
     inline void emit_vcd_dumpoff(std::ostream* vcd_stream) const
-        { *vcd_stream << v2s->undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
     // VCD emit method. Should NOT be called if vcd_stream is NULL.
     inline void emit_register(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s->undefined() : (*v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
 
 private:
     // Bit width of this register.
@@ -271,8 +265,8 @@ private:
     bool replica_x;
 
     // VCD string printer.
-    vcd::value2string_t<T>* v2s;
-    bool is_default_printer;
+    vcd::value2string_t<T> def_printer = { replica }; 
+    vcd::value2string_t<T>& v2s;
 
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
@@ -293,10 +287,8 @@ private:
         // Save bit width.
         this->width = (W > 0) ? W : vcd::bitwidth<T>();
 
-        // Create default VCD string printer.
-        v2s = new vcd::value2string_t<T>(replica); 
-        v2s->set_width(this->width);
-        is_default_printer = true;
+        // Set default printer bit width.
+        v2s.set_width(this->width);
 
         // Connect to parent and optionally initialize.
         if (init) {

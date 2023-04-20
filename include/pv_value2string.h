@@ -31,6 +31,7 @@ namespace vcd {
     public:
         // Constructor takes bit width as argument.
         value2string_base_t(const int wv) : w(wv) {}
+        value2string_base_t(const value2string_base_t& vb) = delete;
 
         // Width setter/getter
         inline void set_width(const int wv) { w = wv; }
@@ -68,6 +69,7 @@ namespace vcd {
     struct value2string_t : public value2string_base_t {
         // Constructor: takes an argument which is some variable of the type to be printed.
         value2string_t(const T& v) : value2string_base_t(bitwidth<T>()) {}
+        value2string_t(const value2string_t<T>& v) = delete;
 
         // Functor to print value as a string.
         std::string operator()(const T& v, const bool add_b_prefix = true) const {
