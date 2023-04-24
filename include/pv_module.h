@@ -119,6 +119,7 @@ private:
     std::set<const Module*>::iterator self;
 
     // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
+    // By default, we trigger ourselves so every module is evaluated at least once.
     void constructor_common() {
         if (parent_module) {
             root_instance = parent_module->root_instance;
@@ -127,6 +128,7 @@ private:
             root_instance = this;
             self = module_list.end();
         }
+        this->trigger_module(this);
     }
 };
 
