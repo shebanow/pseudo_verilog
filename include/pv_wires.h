@@ -53,9 +53,6 @@
  * when instanced (non-initialized begin in an 'x' state).
  */
 
-// VCD class forward declaration.
- namespace vcd { class writer; }
-
 /*
  * Wire base class.
  * This is a non-templated class, designed this way so that external infrastructure can iterate
@@ -69,32 +66,27 @@
  *      - parent(): return pointer to parent Module
  *      - top(): returns pointer to topmost module instance (a Testbench).
  *      - {virtual, abstract} get_width() - returns width of wire in bits.
- *  Related to VCD dumps:
- *      - {virtual, abstract} emit_vcd_definition() - print the definition of a wire to a VCD stream.
- *      - {virtual, abstract} emit_vcd_dumpvars() - print the initial state of a wire to a VCD stream.
- *      - {virtual, abstract} emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
- *      - {virtual, abstract} emit_vcd_dumpoff() - pringt 'x' states for the wire to a VCD stream.
- *      - {virtual, abstract} emit_vcd_neg_edge_update(): emit changed values to VCD stream.
  */
 
 class WireBase {
 protected:
-    // Constructor/Destructor: protected so only subclass can use. 
-    // Disable copy constructor.
+    // Constructor/Destructor: protected so only subclass can use. Note that every wire type must have a parent module.
+    // The test to set root instance checks for null parent regardless in case the constructor is erroneously invoked; 
+    // the common_constructor() call will catch the error. 
     WireBase(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(str)
         { constructor_common(); }
     WireBase(const Module* p, const std::string& nm) : parent_module(p), root_instance(p ? p->root_instance : NULL), wire_name(nm)
         { constructor_common(); }
-    WireBase(const WireBase& w) = delete;
-    virtual ~WireBase() { const_cast<Module*>(parent_module)->remove_wire_instance(self); }
+    virtual ~WireBase() { const_cast<Module*>(parent_module)->remove_wire_instance(this); }
 
 public:
+    // Disable default and copy constructors.
+    WireBase() = delete;
+    WireBase(const WireBase& w) = delete;
+
     // General naming methods.
     const inline std::string name() const { return wire_name; }
-    const std::string instanceName() const { 
-        std::string tmp = parent_module->instanceName() + "." + wire_name;
-        return tmp;
-    }
+    const std::string instanceName() const { return parent_module->instanceName() + "." + wire_name; }
 
     // Get parent module & top level (root/testbench) pointer. Both are non-NULL.
     inline const Module* parent() const { return parent_module; }
@@ -102,6 +94,19 @@ public:
 
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
+
+protected:
+    // Friend classes.
+    friend class Testbench;
+    friend class vcd::writer; 
+
+    // Parent modules and name.
+    const Module* parent_module;
+    const Module* root_instance;
+    const std::string wire_name;
+
+    // Save sensitized module (if any)
+    Module *sensitized_module;
 
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
@@ -113,18 +118,6 @@ public:
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_neg_edge_update(std::ostream* vcd_stream) = 0;
 
-protected:
-    // Parent modules and name.
-    const Module* parent_module;
-    const Module* root_instance;
-    const std::string wire_name;
-
-    // Save sensitized module (if any)
-    Module *sensitized_module;
-
-    // Reference to self for instance list.
-    std::set<const WireBase*>::iterator self;
-
 private: 
     // Common constructor code.
     void constructor_common() {
@@ -133,7 +126,7 @@ private:
             throw std::invalid_argument("Wire must be declared withing a Module");
 
         // Associate to parent module. Default is no sensitization.
-        self = const_cast<Module*>(parent_module)->add_wire_instance(this);
+        const_cast<Module*>(parent_module)->add_wire_instance(this);
         sensitized_module = NULL;
 
         // Initialize VCD ID.
@@ -174,24 +167,22 @@ private:
  *      - assign_x(): transitions wire to "x"
  *  Operator overloads:
  *      - The usual suspects...
- *  VCD related:
- *      - emit_vcd_definition() - print the definition of a wire to a VCD stream.
- *      - emit_vcd_dumpvars() - print the initial state of a wire to a VCD stream.
- *      - emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
- *      - emit_vcd_dumpoff() - pringt 'x' states for the wire to a VCD stream.
- *      - emit_vcd_neg_edge_update(): emit changed values to VCD stream.
  */
 
 template <typename T>
 class WireTemplateBase : public WireBase {
-public:
+protected:
     // Constructor/Destructor.
     WireTemplateBase(const Module* p, const char* str, const int W) : WireBase(p, str), v2s(def_printer) { constructor_common(W); }
     WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm), v2s(def_printer) { constructor_common(W); }
     virtual ~WireTemplateBase() {}
 
+public:
+    // Disable default and copy constructors.
+    WireTemplateBase() = delete;
+    WireTemplateBase(const WireTemplateBase& w) = delete;
+
     // Width setter/getter.
-    // void set_width(const int wv) { width = wv; if (is_default_printer) v2s->set_width(width); }
     void set_width(const int wv) { width = wv; v2s.set_width(width); }
     const int get_width() const { return width; }
 
@@ -227,7 +218,7 @@ public:
     }
 
     // General wire->wire assignment (same or different source type).
-    WireTemplateBase& operator=(const WireTemplateBase& v) { common_copy_assignment<bool>(v); return *this; }
+    WireTemplateBase& operator=(const WireTemplateBase& v) { common_copy_assignment<T>(v); return *this; }
     template <typename U> WireTemplateBase& operator=(const WireTemplateBase<U>& v) { common_copy_assignment<U>(v); return *this; }
 
     // X state setters/getters.
@@ -268,27 +259,6 @@ public:
     inline WireTemplateBase  operator++(int) { WireTemplateBase tmp = *this; ++value; return tmp; }
     inline WireTemplateBase  operator--(int) { WireTemplateBase tmp = *this; --value; return tmp; }
 
-    // VCD dump methods.
-    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
-    void emit_vcd_definition(std::ostream* vcd_stream) const
-        { *vcd_stream << "$var wire " << width << " " << vcd_id_str << " " << wire_name << " $end" << std::endl; }
-    void emit_vcd_dumpvars(std::ostream* vcd_stream) const
-        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    void emit_vcd_dumpon(std::ostream* vcd_stream) const
-        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    void emit_vcd_dumpoff(std::ostream* vcd_stream) const
-        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-
-    // VCD updates on negative edge of clock: if value has changed print the change.
-    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
-    void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
-        if (is_x ? (is_x ^ was_x) : (was_x || value != old_value))
-            // *vcd_stream << (is_x ? v2s->undefined() : (*v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
-            *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
-        was_x = is_x;
-        old_value = value;
-    }
-
 protected:
     // Width parameter.
     int width;
@@ -305,6 +275,29 @@ protected:
     inline void clear_x_states() { is_x = was_x = false; }
 
 private:
+    // Friend class
+    friend class vcd::writer;
+
+    // VCD dump methods.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
+    void emit_vcd_definition(std::ostream* vcd_stream) const
+        { *vcd_stream << "$var wire " << this->width << " " << vcd_id_str << " " << wire_name << vcd::width2index(this->width) << " $end" << std::endl; }
+    void emit_vcd_dumpvars(std::ostream* vcd_stream) const
+        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+    void emit_vcd_dumpon(std::ostream* vcd_stream) const
+        { *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+    void emit_vcd_dumpoff(std::ostream* vcd_stream) const
+        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+
+    // VCD updates on negative edge of clock: if value has changed print the change.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
+    void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
+        if (is_x ? (is_x ^ was_x) : (was_x || value != old_value))
+            *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
+        was_x = is_x;
+        old_value = value;
+    }
+
     // VCD string printer (default)
     vcd::value2string_t<T> def_printer = { value }; 
     vcd::value2string_t<T>& v2s;
@@ -330,7 +323,8 @@ private:
     // Common constructor code.
     // Set default VCD string printer and initialize wire to X state.
     void constructor_common(const int W) {
-        v2s.set_width((W > 0) ? W : vcd::bitwidth<T>());
+        width = (W > 0) ? W : vcd::bitwidth<T>();
+        v2s.set_width(width);
         was_x = is_x = true;
     }
 };
@@ -356,6 +350,8 @@ public:
 
     // Call superclass for assignment operator.
     inline Wire& operator=(const T& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
+    inline Wire& operator=(const Wire& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
+    template <typename U> inline Wire& operator=(const Wire<U>& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
 
 private:
     // Common constructor for all four variants.
@@ -434,7 +430,6 @@ private:
     // Common constructor for all four variants.
     void constructor_common(const Module* p, const char* str, const T* init) {
         if (p) {
-            // connect input to its parent and optionally initialize
             this->sensitized_module = const_cast<Module*>(p);
             if (init) {
                 this->value = *init;

@@ -103,6 +103,8 @@ namespace vcd {
             // Init vcd_clock_ID; default value.
             vcd_clock_ID = "*@";
         }
+        writer() = delete;
+        writer(const writer& w) = delete;
 
         // Destructor: closes file.
         virtual ~writer() {
@@ -159,8 +161,8 @@ namespace vcd {
         void emit_header() {
             check_state();
             *vcd_stream << "$date " << get_zulu_time() << "$end\n";
-            *vcd_stream << "$version " << PV_VCD_VERSION << " $end\n";
-            *vcd_stream << "$timescale " << time_str << " $end\n";
+            *vcd_stream << "$version " << PV_VCD_VERSION << "\n$end\n";
+            *vcd_stream << "$timescale " << time_str << "\n$end\n";
         }
 
         /*** VCD COMMENT EMIT ***/

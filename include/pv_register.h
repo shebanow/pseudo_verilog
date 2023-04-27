@@ -78,9 +78,12 @@ protected:
         { constructor_common(); }
     RegisterBase(const Module* p, const std::string& str) : parent_module(p), root_instance(p ? p->root_instance : NULL), register_name(str)
         { constructor_common(); }
-    virtual ~RegisterBase() { const_cast<Module*>(parent_module)->remove_register_instance(self); }
+    virtual ~RegisterBase() { const_cast<Module*>(parent_module)->remove_register_instance(this); }
 
 public: 
+    // disallow general public use
+    RegisterBase() = delete;
+
     // General naming methods.
     inline const std::string name() const { return register_name; }
     const std::string instanceName() const {
@@ -92,6 +95,15 @@ public:
     const Module* parent() const { return parent_module; }
     const Module* top() const { return root_instance; }
 
+protected:
+    // Parent modules and name.
+    const Module* parent_module;
+    const Module* root_instance;
+    const std::string register_name;
+
+    // How to clock this register, to be overridden by subclass
+    virtual void pos_edge() = 0;
+
     // VCD related.
     std::string vcd_id_str;
     virtual void emit_vcd_definition(std::ostream* vcd_stream) = 0;
@@ -100,21 +112,10 @@ public:
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
     virtual void emit_register(std::ostream* vcd_stream) const = 0;
 
-protected:
-    // Parent modules and name.
-    const Module* parent_module;
-    const Module* root_instance;
-    const std::string register_name;
-
-    // Iterator pointing to membership in parent.
-    std::set<const RegisterBase*>::iterator self;
-
-    // How to clock this register, to be overridden by subclass
-    virtual void pos_edge() = 0;
-
 private:
     // Friend class.
     friend class Testbench; 
+    friend class vcd::writer;
 
     // Common constuctor code.
     void constructor_common() {
@@ -123,7 +124,7 @@ private:
             throw std::invalid_argument("Register must be declared withing a Module");
 
         // Associate to parent module.
-        self = const_cast<Module*>(parent_module)->add_register_instance(this);
+        const_cast<Module*>(parent_module)->add_register_instance(this);
 
         // Initialize VCD ID.
         std::stringstream ss;
@@ -169,6 +170,7 @@ template <typename T, int W = -1>
 class Register final : public RegisterBase {
 public:
     // Constructors/Destructor.
+    // Disallow default constructor and copy constructor.
     Register(const Module* p, const char* str) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str, NULL); }
     Register(const Module* p, const char* str, const T& init) : RegisterBase(p, str), v2s(def_printer)
@@ -177,6 +179,8 @@ public:
         { constructor_common(p, str.c_str(), NULL); }
     Register(const Module* p, const std::string& str, const T& init) : RegisterBase(p, str), v2s(def_printer)
         { constructor_common(p, str.c_str(), &init); }
+    Register() = delete;
+    Register(const Register& r) = delete;
     virtual ~Register() {}
 
     // Getters.
@@ -237,22 +241,10 @@ public:
     Register& operator++(int) = delete;
     Register& operator--(int) = delete;
 
-    // VCD dump methods.
-    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
-    inline void emit_vcd_definition(std::ostream* vcd_stream)
-        { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << " $end" << std::endl; }
-    inline void emit_vcd_dumpvars(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    inline void emit_vcd_dumpon(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-    inline void emit_vcd_dumpoff(std::ostream* vcd_stream) const
-        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-
-    // VCD emit method. Should NOT be called if vcd_stream is NULL.
-    inline void emit_register(std::ostream* vcd_stream) const
-        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
-
 private:
+    // Friend class
+    friend class vcd::writer;
+
     // Bit width of this register.
     int width;
 
@@ -264,10 +256,6 @@ private:
     bool source_x;
     bool replica_x;
 
-    // VCD string printer.
-    vcd::value2string_t<T> def_printer = { replica }; 
-    vcd::value2string_t<T>& v2s;
-
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
         if (replica_x ? !source_x : (source_x || replica != source)) {
@@ -278,6 +266,23 @@ private:
         replica_x = source_x;
     }
 
+    // VCD string printer.
+    vcd::value2string_t<T> def_printer = { replica }; 
+    vcd::value2string_t<T>& v2s;
+
+    // VCD printer methods.
+    // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
+    inline void emit_vcd_definition(std::ostream* vcd_stream)
+        { *vcd_stream << "$var reg " << width << " " << vcd_id_str << " " << name() << vcd::width2index(width) << " $end" << std::endl; }
+    inline void emit_vcd_dumpvars(std::ostream* vcd_stream) const
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+    inline void emit_vcd_dumpon(std::ostream* vcd_stream) const
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+    inline void emit_vcd_dumpoff(std::ostream* vcd_stream) const
+        { *vcd_stream << v2s.undefined() << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+    inline void emit_register(std::ostream* vcd_stream) const
+        { *vcd_stream << (replica_x ? v2s.undefined() : (v2s)(replica)) << (width > 1 ? " " : "") << vcd_id_str << std::endl; }
+
     // Common code for all constructors.
     void constructor_common(const Module* p, const char* str, const T* init) {
         // Error checking.
@@ -285,16 +290,15 @@ private:
             throw std::invalid_argument("Register must be declared inside a module");
 
         // Save bit width.
-        this->width = (W > 0) ? W : vcd::bitwidth<T>();
+        width = (W > 0) ? W : vcd::bitwidth<T>();
 
         // Set default printer bit width.
-        v2s.set_width(this->width);
+        v2s.set_width(width);
 
         // Connect to parent and optionally initialize.
         if (init) {
             replica = source = *init;
             source_x = replica_x = false;
-            const_cast<Module*>(root_instance)->trigger_module(parent_module);
         } else
             source_x = replica_x = true;
     }

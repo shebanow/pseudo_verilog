@@ -110,6 +110,19 @@ namespace vcd {
         }
     };
 
+    /*
+     * width2index(): convert a bit width to an index string (i.e., "[msb:lsb]").
+     */
+
+    inline std::string width2index(const int w) {
+        std::string str = "";
+        if (w <= 1) return str;
+        str += " [";
+        str += std::to_string(w-1);
+        str += ":0]";
+        return str;
+    }
+
 } // end namespace vcd
 
  #endif //  _PV_VALUE2STRING_H_

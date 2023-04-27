@@ -32,8 +32,10 @@
 class Testbench : public Module {
 public:
     // Constructors, std::string and char* variants.
-    Testbench(const std::string& str) : Module(NULL, str) { constructor_common(); }
+    Testbench(const std::string& nm) : Module(NULL, nm) { constructor_common(); }
     Testbench(const char* str) : Module(NULL, str) { constructor_common(); }
+    Testbench() = delete;
+    Testbench(const Testbench& tb) = delete;
 
     // Main method that must be overloaded to implement argument processing, other construction time init.
     // Called after construction and before simulation().

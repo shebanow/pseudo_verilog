@@ -34,7 +34,8 @@ const char* color2str(const color c) {
 
 class tlc : public Module {
 public:
-    tlc(const Module* p, const char* str) : tlc(p, std::string(str)) {}
+    // Constructors.
+    tlc(const Module* p, const char* str) : Module(p, str) {}
     tlc(const Module* p, const std::string& nm) : Module(p, nm) {}
 
     // eval function
@@ -78,6 +79,7 @@ public:
     Output<color, 2> instance(north_south, red);
 
 private:
+    Wire<uint32_t, 16> instance(dummy, 0);
     Register<color, 2> instance(ew_state, green);
     Register<color, 2> instance(ns_state, red);
     Register<uint32_t, 8> instance(timer, 0);
@@ -86,9 +88,12 @@ private:
 
 // TLC test bench
 struct tlc_tb : public Testbench {
-    tlc_tb(const std::string& str) : Testbench(str) {}
+    // The TLC instance.
+    tlc instance(iTLC);
+
+    // Constructors.
+    tlc_tb(const std::string& nm) : Testbench(nm) {}
     tlc_tb(const char* str) : Testbench(str) {}
-    virtual ~tlc_tb() {}
 
     void tlc_usage() {
         extern char* prog_name;
@@ -128,7 +133,4 @@ struct tlc_tb : public Testbench {
     void post_clock(const uint32_t cycle_num) {
         printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
     }
-
-    // the TLC instance
-    tlc instance(iTLC);
 };
