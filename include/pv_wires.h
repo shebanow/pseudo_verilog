@@ -215,24 +215,24 @@ public:
     inline WireTemplateBase& operator|=(const T& v) { T new_v = value | v; common_assignment(is_x, new_v); return *this; }
 
     // Operator-assign overloads with "WireTemplateBase<T>" type value.
-    inline WireTemplateBase& operator+=(const WireTemplateBase& wv) { T new_v = value + wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator-=(const WireTemplateBase& wv) { T new_v = value - wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator*=(const WireTemplateBase& wv) { T new_v = value * wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator/=(const WireTemplateBase& wv) { T new_v = value / wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator%=(const WireTemplateBase& wv) { T new_v = value % wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator^=(const WireTemplateBase& wv) { T new_v = value ^ wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator&=(const WireTemplateBase& wv) { T new_v = value & wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    inline WireTemplateBase& operator|=(const WireTemplateBase& wv) { T new_v = value | wv.v; common_assignment(wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator+=(const WireTemplateBase& wv) { T new_v = value + wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator-=(const WireTemplateBase& wv) { T new_v = value - wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator*=(const WireTemplateBase& wv) { T new_v = value * wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator/=(const WireTemplateBase& wv) { T new_v = value / wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator%=(const WireTemplateBase& wv) { T new_v = value % wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator^=(const WireTemplateBase& wv) { T new_v = value ^ wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator&=(const WireTemplateBase& wv) { T new_v = value & wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    inline WireTemplateBase& operator|=(const WireTemplateBase& wv) { T new_v = value | wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
 
     // Operator-assign overloads with "WireTemplateBase<U>" type value.
-    template <typename U> inline WireTemplateBase& operator+=(const WireTemplateBase& wv) { T new_v = value + (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator-=(const WireTemplateBase& wv) { T new_v = value - (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator*=(const WireTemplateBase& wv) { T new_v = value * (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator/=(const WireTemplateBase& wv) { T new_v = value / (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator%=(const WireTemplateBase& wv) { T new_v = value % (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator^=(const WireTemplateBase& wv) { T new_v = value ^ (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator&=(const WireTemplateBase& wv) { T new_v = value & (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
-    template <typename U> inline WireTemplateBase& operator|=(const WireTemplateBase& wv) { T new_v = value | (T) wv.v; common_assignment(wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator+=(const WireTemplateBase& wv) { T new_v = value + (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator-=(const WireTemplateBase& wv) { T new_v = value - (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator*=(const WireTemplateBase& wv) { T new_v = value * (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator/=(const WireTemplateBase& wv) { T new_v = value / (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator%=(const WireTemplateBase& wv) { T new_v = value % (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator^=(const WireTemplateBase& wv) { T new_v = value ^ (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator&=(const WireTemplateBase& wv) { T new_v = value & (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
+    template <typename U> inline WireTemplateBase& operator|=(const WireTemplateBase& wv) { T new_v = value | (T) wv.v; common_assignment(is_x|wv.is_x, new_v); return *this; }
 
     // Shift-assign overloads.
     inline WireTemplateBase& operator>>=(const int& v) { T new_v = value >> v; common_assignment(is_x, new_v); return *this; }
