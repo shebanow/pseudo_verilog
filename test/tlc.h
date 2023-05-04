@@ -40,6 +40,23 @@ public:
 
     // eval function
     void eval() {
+        // Reset always takes precedence
+        if (!reset_x) {
+            // Init registers
+            ew_state <= green;
+            ns_state <= red;
+            timer <= 0;
+            ns_cycle <= false;
+
+            // Init outputs
+            east_west = green;
+            north_south = red;
+
+            // All done this clock.
+            return;
+        }
+
+        // If we are running a north-south cycle...
         if (ns_cycle) {
             if (ns_state == green) {
                 if (timer == 0) {
@@ -54,7 +71,10 @@ public:
                 ns_cycle <= false;
                 ew_state <= green;
             }
-        } else {
+        }
+
+        // Or an east-west cycle...
+        else {
             if (ew_state == green) {
                 if (timer == 0) {
                     ew_state <= yellow;
@@ -69,21 +89,23 @@ public:
                 ns_state <= green;
             }
         }
+
+        // Drive traffic light outputs.
         north_south = ns_state;
         east_west = ew_state;
     }
 
     // Ports
+    Input<bool> instance(reset_x);
     Input<uint32_t, 8> instance(delay);
-    Output<color, 2> instance(east_west, green);
-    Output<color, 2> instance(north_south, red);
+    Output<color, 2> instance(east_west);
+    Output<color, 2> instance(north_south);
 
 private:
-    Wire<uint32_t, 16> instance(dummy, 0);
-    Register<color, 2> instance(ew_state, green);
-    Register<color, 2> instance(ns_state, red);
-    Register<uint32_t, 8> instance(timer, 0);
-    Register<bool> instance(ns_cycle, false);
+    Register<color, 2> instance(ew_state);
+    Register<color, 2> instance(ns_state);
+    Register<uint32_t, 8> instance(timer);
+    Register<bool> instance(ns_cycle);
 };
 
 // TLC test bench
@@ -92,8 +114,8 @@ struct tlc_tb : public Testbench {
     tlc instance(iTLC);
 
     // Constructors.
-    tlc_tb(const std::string& nm) : Testbench(nm) {}
-    tlc_tb(const char* str) : Testbench(str) {}
+    tlc_tb(const std::string& nm) : Testbench(nm) { opt_timer_ticks = 4; }
+    tlc_tb(const char* str) : Testbench(str) { opt_timer_ticks = 4; }
 
     void tlc_usage() {
         extern char* prog_name;
@@ -102,7 +124,6 @@ struct tlc_tb : public Testbench {
     }
 
     void main(int argc, char** argv) {
-        int opt_timer_ticks = 4;
         int ch;
         int32_t cycle_limit = 32;
 
@@ -121,16 +142,40 @@ struct tlc_tb : public Testbench {
         argc -= optind;
         if (argc) 
             tlc_usage();
-        iTLC.delay = opt_timer_ticks - 1;
 
-        // Set simultion() options.
+        // Set simulation() options.
         set_cycle_limit(cycle_limit);
         set_iteration_limit(10);
+
+        // Do the simulation
+        this->begin_test();
+        try {
+            this->reset_signals_to_x(&iTLC);
+            this->simulation();
+        } catch (const std::exception& e) {
+            std::cerr << "Caught system error: " << e.what() << std::endl;
+            exit(1);
+        }
+        this->end_test_pass("TLC passed after %d clocks\n", this->get_clock());
     }
 
     // activity around clocks
-    void eval() {}
+    void eval() {
+        if (!reset_done) {
+            reset_done <= true;
+            iTLC.delay = opt_timer_ticks - 1;
+            iTLC.reset_x = false;
+        } else
+            iTLC.reset_x = true;
+    }
+
     void post_clock(const uint32_t cycle_num) {
         printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
     }
+
+    // Timer length option.
+    int opt_timer_ticks;
+
+    // Reset state machine (simple).
+    Register<bool> instance(reset_done, false);
 };

@@ -98,6 +98,9 @@ public:
                 vcd_generate_falling_edge(0);
         }
 
+        // Trigger all modules at least once so as to make sure simulation is "kick started."
+        trigger_all_modules(this);
+
         // Run simulation cycles.
         for (clock_num = 1; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
             // run pre-clock edge against the loaded test bench
@@ -180,23 +183,33 @@ public:
         }
     }
 
-    // Methods supporting test case state.
-    void begin_test() { in_tc = true; }
+    /*
+     * Methods supporting test case state.
+     */
+
+    void begin_test() { in_test_case = true; }
     template<typename ... Args> void end_test_pass(const char* fmt, Args ... args) {
         printf(fmt, args ...);
-        in_tc = false;
+        in_test_case = false;
         pass_count++;
     }
     template<typename ... Args> void end_test_fail(const char* fmt, Args ... args) {
         printf(fmt, args ...);
-        in_tc = false;
+        in_test_case = false;
         fail_count++;
     }
-    inline const bool in_test() const { return in_tc; }
+    inline const bool in_test() const { return in_test_case; }
     inline const int n_pass() const { return pass_count; }
     inline const int n_fail() const { return fail_count; }
 
-    // Keeping track of assigned VCD ID counts.
+    /*
+     * Method to reset all signals (wires and registers) of the specified module and all it instances to the 'x' state.
+     */
+    inline void reset_signals_to_x(const Module* m) { init_all_modules_to_x(m); }
+
+    /* 
+     * vcd_id_count(): return current count of VCD IDs assigned.
+     */
     virtual uint32_t& vcd_id_count() { return vcd_id_counter; }
 
 protected:
@@ -210,7 +223,7 @@ private:
     int32_t opt_idle_limit;
 
     // Test case parameters.
-    bool in_tc;   
+    bool in_test_case;   
     int pass_count;
     int fail_count;
     bool exit_simulation;
@@ -230,6 +243,23 @@ private:
 
     // Method to enqueue a Module to be evaluated ("eval()"). 
     void trigger_module(const Module* theModule) { triggered.insert(theModule); }
+
+    // Method to trigger all module instances below and including some module.
+    void trigger_all_modules(const Module* m) {
+        trigger_module(m);
+        for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+            trigger_all_modules(*it);
+    }
+
+    // Method to trigger all module instances below and including some module.
+    void init_all_modules_to_x(const Module* m) {
+        for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
+            const_cast<WireBase*>(*it)->assign_x();
+        for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+            const_cast<RegisterBase*>(*it)->reset_to_x();
+        for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+            init_all_modules_to_x(*it);
+    }
 
     // Methods to add/remove changed wires and registers
     void add_changed_wire(const WireBase* theWire) { changed_wires.insert(theWire); }
@@ -297,7 +327,7 @@ private:
         writer = NULL;
 
         // Set default test case parameters.
-        in_tc = false;
+        in_test_case = false;
         pass_count = fail_count = 0;
         exit_simulation = false;
 

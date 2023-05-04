@@ -114,14 +114,12 @@ private:
     std::set<const RegisterBase*> register_list;
 
     // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
-    // By default, we trigger ourselves so every module is evaluated at least once.
     void constructor_common() {
         if (parent_module) {
             root_instance = parent_module->root_instance;
             const_cast<Module*>(parent_module)->add_module_instance(this);
         } else
             root_instance = this;
-        this->trigger_module(this);
     }
 };
 

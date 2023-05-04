@@ -108,6 +108,9 @@ protected:
     // Save sensitized module (if any)
     Module *sensitized_module;
 
+    // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
+    virtual void assign_x() {}
+
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
     // to execute these methods in a type-independent manner, hence the virtual functions below.

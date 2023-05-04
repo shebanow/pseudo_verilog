@@ -114,23 +114,13 @@ int main(int argc, char **argv) {
     argv += optind;
     optind = 0;
 
-    // Create testbench for TLC and process remaining command line args (should be none).
-    dut_tb = new tlc_tb("tlc_tb");
-    dut_tb->main(argc, argv);
-
     // Option error checking.
     if (opt_vcd_start_clock >= 0 && opt_vcd_stop_clock >= 0 && opt_vcd_start_clock >= opt_vcd_stop_clock) {
         std::cerr << "VCD start clock (" << opt_vcd_start_clock << ") must be less than stop clock (" << opt_vcd_stop_clock << ")\n";
         exit(1);
     }
 
-    // Handle simulator options.
-    if (opt_iteration_limit >= 0)
-        dut_tb->set_iteration_limit(opt_iteration_limit);
-    if (opt_clock_limit >= 0)
-        dut_tb->set_cycle_limit(opt_clock_limit);
-
-    // if VCD is enabled, create the file
+    // If VCD is enabled, create the file.
     vcd::writer* vcd_file = NULL;
     if (opt_vcd_enable) {
         // Open VCD file.
@@ -148,18 +138,18 @@ int main(int argc, char **argv) {
 
         // Set operating point and install VCD writer.
         vcd_file->set_operating_point(100e6, vcd::TS_time::t1, vcd::TS_unit::ns);
-        dut_tb->set_vcd_writer(vcd_file);
     }
 
-    // Run TLC test
-    dut_tb->begin_test();
-    try {
-        dut_tb->simulation();
-    } catch (const std::exception& e) {
-        std::cerr << "Caught system error: " << e.what() << std::endl;
-        exit(1);
-    }
-    dut_tb->end_test_pass("TLC passed after %d clocks\n", dut_tb->get_clock());
+    // Create testbench for TLC. Attach VCD file if it exists.
+    // Handle simulator iteration options. Process remaining command line args and run the simulation.
+    dut_tb = new tlc_tb("tlc_tb");
+    if (opt_iteration_limit >= 0)
+        dut_tb->set_iteration_limit(opt_iteration_limit);
+    if (opt_clock_limit >= 0)
+        dut_tb->set_cycle_limit(opt_clock_limit);
+    if (vcd_file)
+        dut_tb->set_vcd_writer(vcd_file);
+    dut_tb->main(argc, argv);
 
     // sim complete
     if (vcd_file) delete vcd_file;

@@ -95,6 +95,10 @@ public:
     const Module* parent() const { return parent_module; }
     const Module* top() const { return root_instance; }
 
+    // Virtual X state setters. Actual implementation in Register<T>.
+    virtual void assign_x() {}
+    virtual void reset_to_x() {}
+
 protected:
     // Parent modules and name.
     const Module* parent_module;
@@ -221,6 +225,10 @@ public:
     // X state getters.
     inline bool value_is_x() const { return replica_x; }
     inline bool value_will_be_x() const { return source_x; }
+
+    // X state setters.
+    inline void assign_x() { source_x = true; }
+    inline void reset_to_x() { replica_x = source_x = true; }
 
     // VCD string printer setter.
     void set_vcd_string_printer(const vcd::value2string_t<T>& printer) { v2s = printer; }
