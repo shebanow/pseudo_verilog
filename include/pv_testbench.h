@@ -77,7 +77,7 @@ public:
     inline void end_simulation() { exit_simulation = true; }
 
     // The main simulation method.
-    void simulation(const bool continue_clock__sequence = false) {
+    void simulation(const bool continue_clock_sequence = false) {
         uint32_t idle_cycles = 0;
         uint32_t iteration_count = 0;
         bool had_stop_event = false;
@@ -85,7 +85,7 @@ public:
 
         // If we are writing a VCD, generate header and definitions, initial state.
         // If dump start clock is positive non-zero, also execute a VCD dumpoff() command.
-        if (writer != NULL && writer->is_open()) {
+        if (!continue_clock_sequence && writer != NULL && writer->is_open()) {
             vcd_generate_header();
             vcd_dumpvars(0);
             if (writer->get_vcd_start_clock() > 0) {
@@ -104,7 +104,7 @@ public:
         // Run simulation cycles. 
         // The first test resets clock_num to 1 if we are *not* continuing a clock sequence from any prior simulation.
         // By default, this is the case. This control is useful if a test bench uses multiple simulation calls.
-        if (!continue_clock__sequence)
+        if (!continue_clock_sequence)
             clock_num = 1;
         for ( ; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
             // run pre-clock edge against the loaded test bench
