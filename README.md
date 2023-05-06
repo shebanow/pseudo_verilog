@@ -2,14 +2,115 @@ NOTE: this doc is out of date and needs revision!
 
 # The Pseudo-Verilog Header-only Library
 
-Verilog-like C++ simulation infrastructure for hardware design.
+This header-only library implements a Verilog-like C++ simulation infrastructure for hardware design.
+This library is an alternative to SystemC (https://systemc.org/overview/systemc/) with the intent to create a more Verliog-look design.
+Signals in this library are quasi three state (0, 1, and 'x'). 
+
+# A Simple Example
+
+The following example is a 4-bit up counter with enable:
+
+```cpp
+class Counter final : public Module {
+public:
+    // Constructor
+    Counter(const Module* parent, const char* name) : Module(parent, name) {}
+    
+    // Ports
+    Input<bool> instance(reset_x);    // active low reset input
+    Input<bool> instance(enable);     // active high counter enable
+    Output<int, 4> instance(value);   // 4-bit output count
+    
+    // Per-clock-cycle evaluation function
+    void eval() {
+        // If reset is asserted...
+        if (!reset_x) {
+            value = 0;
+            counter <= 0;
+            return;
+        }
+        
+        // Otherwise, if counting is enabled...
+        if (enable)
+            counter <= (counter + 1) & 0xF;
+    }
+    
+private:
+    Register<int, 4> instance(counter); // The actual counter register
+};
+```
+
+Dissecting the components of this example, a ```Counter``` module class is declared:
+
+```cpp
+class Counter final : public Module {
+public:
+    // Constructor
+    Counter(const Module* parent, const char* name) : Module(parent, name) {}
+```
+
+The ```Counter``` class is a type of ```Module```. 
+To that end, the heavy lifting in the constructor is actually
+performed by the ```Module``` class - the body of the ```Counter``` constructor is blank. 
+Two parameters are passed to the ```Counter``` constructor, a pointer to the "parent" module and an instance name.
+The parent module is a module that constain the instance of the ```Counter``` class being constructed.
+
+Next, the I/O ports of the class are decalred:
+
+```cpp
+    // Ports
+    Input<bool> instance(reset_x);    // active low reset input
+    Input<bool> instance(enable);     // active high counter enable
+    Output<int, 4> instance(value);   // 4-bit output count
+```
+
+In this case, there are two inputs and one output. 
+The inputs are declared as type ```bool``` and by definition are single bit wires.
+The solitary output is declared to be type ```int```, but the width is specified to be 4 bits.
+(Note that the actual type is still ```int``` and all C++ operators will perform to the full range of ```int```;
+the width only applies when signals are dumped to a VCD file.)
+
+Skipping the implementation for now, a single register is declared:
+
+```cpp
+private:
+    Register<int, 4> instance(counter); // The actual counter register
+```
+Like the output, this register is of type ```int``` with a width of 4 bits.
+
+Finally, we get to the guts of the counter, its implementation:
+
+```cpp
+    // Per-clock-cycle evaluation function
+    void eval() {
+        // If reset is asserted...
+        if (!reset_x) {
+            value = 0;
+            counter <= 0;
+            return;
+        }
+        
+        // Otherwise, if counting is enabled...
+        if (enable)
+            counter <= (counter + 1) & 0xF;
+    }
+```
+
+The```eval()``` is called whenever any input to the module is changed or if the register changes state.
+(This will be explained in more detail later.)
+At the head of the ```eval()``` function is a test of the input reset signal.
+If reset is asserted (active low), the output port and register are driven to a known value.
+The function then returns since there is nothing else to do that clock.
+If reset is not asserted and enable is asserted, the counter is incremented (and qualified to stay within a 4-bit range).
+This completes the implementation of the ```Counter``` class.
 
 # Simulation Infrastructure
 
-Three classes are defined to help simulate hardware behavior:
+Four primary classes are defined to help simulate hardware behavior:
 * Module - container for implementation modules (aka, blocks).
-* Wire - container for simulating wires (akin to Verilog wires). 
+* Wire/QWire/Input/Output - containers for simulating ports and wires (akin to Verilog wires). 
 * Register - container for simulating registers (flip flops) (akin to Verilog "reg").
+* Testbench - a type of Module employed to test implementations.
 
 ## The ```Module``` Class
 
@@ -17,7 +118,6 @@ The ```Module``` class is a container intended to be subclassed by an actual imp
 of a module. The subclass must define two methods:
 * ```Module(const Module* parent, const std::string& name)```: the class constructor.
 * ```virtual void eval()```: a module evaluation function.
-
 
 The constructor specifies both a parent module and an instance name (and if the module has no parent (i.e., a top level module), 
 the parent module can be NULL). Together, they help form an instance name (a path). The ```eval()``` function is called when any register
