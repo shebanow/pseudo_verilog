@@ -77,7 +77,7 @@ public:
     inline void end_simulation() { exit_simulation = true; }
 
     // The main simulation method.
-    void simulation() {
+    void simulation(const bool continue_clock__sequence = false) {
         uint32_t idle_cycles = 0;
         uint32_t iteration_count = 0;
         bool had_stop_event = false;
@@ -101,8 +101,12 @@ public:
         // Trigger all modules at least once so as to make sure simulation is "kick started."
         trigger_all_modules(this);
 
-        // Run simulation cycles.
-        for (clock_num = 1; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
+        // Run simulation cycles. 
+        // The first test resets clock_num to 1 if we are *not* continuing a clock sequence from any prior simulation.
+        // By default, this is the case. This control is useful if a test bench uses multiple simulation calls.
+        if (!continue_clock__sequence)
+            clock_num = 1;
+        for ( ; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
