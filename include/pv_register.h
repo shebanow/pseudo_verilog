@@ -121,8 +121,8 @@ private:
     friend class Testbench; 
     friend class vcd::writer;
 
-    // Virtual method to return register to the state it had when instanced. Actual implementation in Register<T>.
-    virtual void return_to_init_state() {}
+    // Virtual method to reset register to the state it had when instanced. Actual implementation in Register<T>.
+    virtual void reset_to_instance_state() {}
 
     // Common constuctor code.
     void constructor_common() {
@@ -272,9 +272,9 @@ private:
     bool replica_x;
     bool init_x;
 
-    // Return register to state it had when instanced.
+    // Reset register to state it had when instanced.
     // Note that this method does NOT trigger eval().
-    void return_to_init_state() {
+    void reset() {
         source = replica = init_state;
         source_x = replica_x = init_x;
     }

@@ -111,8 +111,8 @@ protected:
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
     virtual void assign_x() {}
 
-    // Virtual method to return wire to the state it had when instanced. Implemented in WireTemplateBase<T>.
-    virtual void return_to_init_state() {}
+    // Virtual method to reset wire to the state it had when instanced. Implemented in WireTemplateBase<T>.
+    virtual void reset_to_instance_state() {}
 
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
@@ -274,9 +274,9 @@ private:
     friend class Testbench;
     friend class vcd::writer;
 
-    // Return state of wire back to the state it had when it was instanced.
+    // Reset state of wire back to the state it had when it was instanced.
     // This call does NOT trigger evals.
-    void return_to_init_state() {
+    void reset_to_instance_state() {
         was_x = is_x = init_x;
         old_value = value = init_value;
     }
