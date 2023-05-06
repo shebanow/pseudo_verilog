@@ -117,9 +117,12 @@ protected:
     virtual void emit_register(std::ostream* vcd_stream) const = 0;
 
 private:
-    // Friend class.
+    // Friend classes.
     friend class Testbench; 
     friend class vcd::writer;
+
+    // Virtual method to return register to the state it had when instanced. Actual implementation in Register<T>.
+    virtual void return_to_init_state() {}
 
     // Common constuctor code.
     void constructor_common() {
@@ -250,7 +253,8 @@ public:
     Register& operator--(int) = delete;
 
 private:
-    // Friend class
+    // Friend classes.
+    friend class Testbench; 
     friend class vcd::writer;
 
     // Bit width of this register.
@@ -261,8 +265,19 @@ private:
     // Both value and 'X' states are captured.
     T source;       // was "master"
     T replica;      // was "slave"
+    T init_state;
+
+    // Similar, but represents 'X' states of this register.
     bool source_x;
     bool replica_x;
+    bool init_x;
+
+    // Return register to state it had when instanced.
+    // Note that this method does NOT trigger eval().
+    void return_to_init_state() {
+        source = replica = init_state;
+        source_x = replica_x = init_x;
+    }
 
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
@@ -305,10 +320,10 @@ private:
 
         // Connect to parent and optionally initialize.
         if (init) {
-            replica = source = *init;
-            source_x = replica_x = false;
+            init_state = replica = source = *init;
+            init_x = source_x = replica_x = false;
         } else
-            source_x = replica_x = true;
+            init_x = source_x = replica_x = true;
     }
 };
 

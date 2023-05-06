@@ -111,6 +111,9 @@ protected:
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
     virtual void assign_x() {}
 
+    // Virtual method to return wire to the state it had when instanced. Implemented in WireTemplateBase<T>.
+    virtual void return_to_init_state() {}
+
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
     // to execute these methods in a type-independent manner, hence the virtual functions below.
@@ -176,8 +179,8 @@ template <typename T>
 class WireTemplateBase : public WireBase {
 protected:
     // Constructor/Destructor.
-    WireTemplateBase(const Module* p, const char* str, const int W) : WireBase(p, str), v2s(def_printer) { constructor_common(W); }
-    WireTemplateBase(const Module* p, const std::string& nm, const int W) : WireBase(p, nm), v2s(def_printer) { constructor_common(W); }
+    WireTemplateBase(const Module* p, const char* str, const int W, const T* init) : WireBase(p, str), v2s(def_printer) { constructor_common(W, init); }
+    WireTemplateBase(const Module* p, const std::string& nm, const int W, const T* init) : WireBase(p, nm), v2s(def_printer) { constructor_common(W, init); }
     virtual ~WireTemplateBase() {}
 
 public:
@@ -252,19 +255,31 @@ protected:
     int width;
 
     // Record the "x" state of the wire. This takes precedence over the value of the wire.
+    // "is_x" is the current state of the wire, "was_x" is the state it had at the start of a clock, and "init_x" is the
+    // state it had when the wire was created.
     bool is_x;
     bool was_x;
+    bool init_x;
 
     // The current and old value of the wire. "old" means the value it had at the start of a clock.
     T value;
     T old_value;
+    T init_value;
 
     // Method to wipe both past and present X states w/o triggering an eval.
     inline void clear_x_states() { is_x = was_x = false; }
 
 private:
-    // Friend class
+    // Friend classes.
+    friend class Testbench;
     friend class vcd::writer;
+
+    // Return state of wire back to the state it had when it was instanced.
+    // This call does NOT trigger evals.
+    void return_to_init_state() {
+        was_x = is_x = init_x;
+        old_value = value = init_value;
+    }
 
     // VCD string printer (default)
     vcd::value2string_t<T> def_printer = { value }; 
@@ -338,10 +353,16 @@ private:
 
     // Common constructor code.
     // Set default VCD string printer and initialize wire to X state.
-    void constructor_common(const int W) {
+    // If initializer is provided, use it; otherwise, set state to 'X'.
+    void constructor_common(const int W, const T* init) {
         width = (W > 0) ? W : vcd::bitwidth<T>();
         v2s.set_width(width);
-        was_x = is_x = true;
+        if (init) {
+            init_x = was_x = is_x = false;
+            init_value = old_value = value = *init;
+            const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
+        } else
+            init_x = was_x = is_x = true;
     }
 };
 
@@ -354,14 +375,10 @@ template <typename T, int W = -1>
 class Wire final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Wire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, str, NULL); }
-    Wire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, str, &init); }
-    Wire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W)
-        { constructor_common(p, nm.c_str(), NULL); }
-    Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W)
-        { constructor_common(p, nm.c_str(), &init); }
+    Wire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
+    Wire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
+    Wire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
+    Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
     virtual ~Wire() {}
 
     // Call superclass for assignment operator.
@@ -371,16 +388,9 @@ public:
 
 private:
     // Common constructor for all four variants.
-    void constructor_common(const Module* p, const char* str, const T* init) {
-        if (p) {
-            this->sensitized_module = const_cast<Module*>(p);
-            if (init) {
-                this->value = *init;
-                this->clear_x_states();
-                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
-            }
-        } else
-            throw std::invalid_argument("Wire must be declared inside a module");
+    void constructor_common(const Module* p) {
+        if (p) this->sensitized_module = const_cast<Module*>(p);
+        else throw std::invalid_argument("Wire must be declared inside a module");
     }
 };
 
@@ -393,14 +403,10 @@ template <typename T, int W = -1>
 class QWire final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, str, NULL); }
-    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, str, &init); }
-    QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W)
-        { constructor_common(p, nm.c_str(), NULL); }
-    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W)
-        { constructor_common(p, nm.c_str(), &init); }
+    QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
+    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
+    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
     virtual ~QWire() {}
 
     // Call superclass for assignment operator.
@@ -408,14 +414,8 @@ public:
 
 private:
     // Common constructor for all four variants.
-    void constructor_common(const Module* p, const char* str, const T* init) {
-        if (p) {
-            if (init) {
-                this->value = *init;
-                this->clear_x_states();
-            }
-        } else
-            throw std::invalid_argument("QWire must be declared inside a module");
+    void constructor_common(const Module* p) {
+        if (!p) throw std::invalid_argument("QWire must be declared inside a module");
     }
 };
 
@@ -429,14 +429,10 @@ template <typename T, int W = -1>
 class Input final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Input(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, str, NULL); }
-    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W) 
-        { constructor_common(p, str, &init); }
-    Input(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W) 
-        { constructor_common(p, nm.c_str(), NULL); }
-    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
-        { constructor_common(p, nm.c_str(), &init); }
+    Input(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
+    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    Input(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
+    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
     virtual ~Input() {}
 
     // Call superclass for assignment operator.
@@ -444,16 +440,9 @@ public:
 
 private:
     // Common constructor for all four variants.
-    void constructor_common(const Module* p, const char* str, const T* init) {
-        if (p) {
-            this->sensitized_module = const_cast<Module*>(p);
-            if (init) {
-                this->value = *init;
-                this->clear_x_states();
-                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
-            }
-        } else
-            throw std::invalid_argument("Input must be declared inside a module");
+    void constructor_common(const Module* p) {
+        if (p) this->sensitized_module = const_cast<Module*>(p);
+        else throw std::invalid_argument("Input must be declared inside a module");
     }
 };
 
@@ -468,14 +457,10 @@ template <typename T, int W = -1>
 class Output final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Output(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W)
-        { constructor_common(p, NULL); }
-    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W) 
-        { constructor_common(p, &init); }
-    Output(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W) 
-        { constructor_common(p, NULL); }
-    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W) 
-        { constructor_common(p, &init); }
+    Output(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
+    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    Output(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
+    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
     virtual ~Output() {}
 
     // Call superclass for assignment operator.
@@ -483,19 +468,11 @@ public:
 
 private:
     // Common constructor for all four variants.
-    void constructor_common(const Module* p, const T* init) {
+    void constructor_common(const Module* p) {
         if (p) {
-            if (p->parent())
-                this->sensitized_module = const_cast<Module*>(p->parent());
-            else 
-                throw std::invalid_argument("Output cannot be declared on a top-level module (i.e., a Testbench)");
-            if (init) {
-                this->value = *init;
-                this->clear_x_states();
-                const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
-            }
-        } else
-            throw std::invalid_argument("Output must be declared inside a module");
+            if (p->parent()) this->sensitized_module = const_cast<Module*>(p->parent());
+            else throw std::invalid_argument("Output cannot be declared on a top-level module (i.e., a Testbench)");
+        } else throw std::invalid_argument("Output must be declared inside a module");
     }
 };
 

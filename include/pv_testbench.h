@@ -207,9 +207,9 @@ public:
     inline const int n_fail() const { return fail_count; }
 
     /*
-     * Method to reset all signals (wires and registers) of the specified module and all it instances to the 'x' state.
+     * Method to return all modules to their initial state when instanced.
      */
-    inline void reset_signals_to_x(const Module* m) { init_all_modules_to_x(m); }
+    inline void return_to_init_state() { return_module_to_init_state(this); }
 
     /* 
      * vcd_id_count(): return current count of VCD IDs assigned.
@@ -255,14 +255,14 @@ private:
             trigger_all_modules(*it);
     }
 
-    // Method to trigger all module instances below and including some module.
-    void init_all_modules_to_x(const Module* m) {
+    // Method to return a module and all it instances to its instance state.
+    void return_module_to_init_state(const Module* m) {
         for (std::set<const WireBase*>::const_iterator it = m->w_begin(); it != m->w_end(); it++)
-            const_cast<WireBase*>(*it)->assign_x();
+            const_cast<WireBase*>(*it)->return_to_init_state();
         for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
-            const_cast<RegisterBase*>(*it)->reset_to_x();
+            const_cast<RegisterBase*>(*it)->return_to_init_state();
         for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
-            init_all_modules_to_x(*it);
+            return_module_to_init_state(*it);
     }
 
     // Methods to add/remove changed wires and registers

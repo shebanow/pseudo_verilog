@@ -150,7 +150,6 @@ struct tlc_tb : public Testbench {
         // Do the simulation
         this->begin_test();
         try {
-            this->reset_signals_to_x(&iTLC);
             this->simulation();
         } catch (const std::exception& e) {
             std::cerr << "Caught system error: " << e.what() << std::endl;
