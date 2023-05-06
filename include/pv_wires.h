@@ -404,9 +404,9 @@ class QWire final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
     QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
     QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
+    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
     virtual ~QWire() {}
 
     // Call superclass for assignment operator.
@@ -430,9 +430,9 @@ class Input final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
     Input(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
     Input(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
+    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
     virtual ~Input() {}
 
     // Call superclass for assignment operator.
@@ -458,9 +458,9 @@ class Output final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
     Output(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, init) { constructor_common(p); }
+    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
     Output(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, init) { constructor_common(p); }
+    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
     virtual ~Output() {}
 
     // Call superclass for assignment operator.
