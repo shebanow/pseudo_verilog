@@ -8,7 +8,8 @@ Signals in this library are quasi three state (0, 1, and 'x').
 
 # A Simple Example
 
-The following example is a 4-bit up counter with enable:
+As an introduction, we'll begin with a simple example.
+The following is a 4-bit up counter with enable:
 
 ```cpp
 class Counter final : public Module {
@@ -53,9 +54,11 @@ The ```Counter``` class is a type of ```Module```.
 To that end, the heavy lifting in the constructor is actually
 performed by the ```Module``` class - the body of the ```Counter``` constructor is blank. 
 Two parameters are passed to the ```Counter``` constructor, a pointer to the "parent" module and an instance name.
-The parent module is a module that constain the instance of the ```Counter``` class being constructed.
+The parent module is a module that contains the instance of the ```Counter``` class being constructed.
+(A ```NULL``` parent module implies that the module is "top level" - this is usually reserved for
+```Testbench``` instances.)
 
-Next, the I/O ports of the class are decalred:
+Next, the I/O ports of the class are declared:
 
 ```cpp
     // Ports
@@ -77,6 +80,7 @@ private:
     Register<int, 4> instance(counter); // The actual counter register
 ```
 Like the output, this register is of type ```int``` with a width of 4 bits.
+This register is declared private as it is internal to the implementation of the counter.
 
 Finally, we get to the guts of the counter, its implementation:
 
@@ -96,104 +100,115 @@ Finally, we get to the guts of the counter, its implementation:
     }
 ```
 
-The```eval()``` is called whenever any input to the module is changed or if the register changes state.
-(This will be explained in more detail later.)
+The```eval()``` function can be thought of as the body of a Verilog ```always @()``` statement,
+called whenever any input to the module is changed or if the register changes state.
 At the head of the ```eval()``` function is a test of the input reset signal.
 If reset is asserted (active low), the output port and register are driven to a known value.
 The function then returns since there is nothing else to do that clock.
 If reset is not asserted and enable is asserted, the counter is incremented (and qualified to stay within a 4-bit range).
 This completes the implementation of the ```Counter``` class.
 
-# Simulation Infrastructure
+# Detailed Description
 
-Four primary classes are defined to help simulate hardware behavior:
+Seven primary classes are defined to help simulate hardware behavior:
 * Module - container for implementation modules (aka, blocks).
-* Wire/QWire/Input/Output - containers for simulating ports and wires (akin to Verilog wires). 
+* Wire, QWire, Input, & Output - containers for simulating ports and wires (akin to Verilog ports and wires). 
 * Register - container for simulating registers (flip flops) (akin to Verilog "reg").
 * Testbench - a type of Module employed to test implementations.
+
+In addition, there are four other classes/functions that support the library:
+* ```vcd::bitwidth<T>```: a class used to infer or specify the bit width of a type.
+* ```int vcd::bitidth<T>()```: related function to return that bit width.
+* ```std::string vcd::value2string_t<T>```: function to return a VCD-style string of some value.
+* ```vcd::writer```: a class used to write VCD files.
 
 ## The ```Module``` Class
 
 The ```Module``` class is a container intended to be subclassed by an actual implementation
-of a module. The subclass must define two methods:
-* ```Module(const Module* parent, const std::string& name)```: the class constructor.
-* ```virtual void eval()```: a module evaluation function.
+of a module.
+Any subclass of ```Module``` must define two or three methods:
 
-The constructor specifies both a parent module and an instance name (and if the module has no parent (i.e., a top level module), 
-the parent module can be NULL). Together, they help form an instance name (a path). The ```eval()``` function is called when any register
-or wire the module is sensitized on changes value; it is expected that the module then reevaluate its own state.
+* A class constructor of either or both forms:
+  * ```Module(const Module* parent, const std::string& name)```
+  * ```Module(const Module* parent, const char* str)```
+* ```void eval()```: a module evaluation function.
 
-As a trivial example, assume we want to define as subclass ```Demo```:
-```cpp
-class Demo final : public Module {
-public:
-  Demo(const Module* parent, const std::string& name) : Module(parent, name) {
-    ... code that builds Demo ...
-  }
-  
-  virtual void eval() {
-    ... code that evaluates the Demo module ...
-  }
-  
-  /* Port Declarations */
-  Wire<type> port1;
-  Wire<type> port2;
-  etc.
- 
-private:
-  /* Private instances as required */
-};
-```
-The ```Demo``` constructor should "build" the module. This includes making wire and register "connections" as 
-needed to signal evaluations of this module. To actually get the construction to happen though, you have to instance the new module.
-```cpp
-Demo demo(myParent, "demo");
-```
-The ```Demo``` ```eval()``` function represents work to be performed when any input to a module or any register within the module
-changes state. Generally speaking, for module-module communication, ```Wire``` types should be declared and instanced to carry information
-from one module to the next. If a module connects itself to these wires during the construction phase, any change of information
-on these wires will cause this module's to be called. A similar process would happen upon any change in internal register state
-on the next clock edge if the module connects itself to its own registers.
+The constructor specifies both a parent module and an instance name
+if the module has no parent (i.e., a top level module), the parent module can be NULL.
+Together, they help form an instance name (a path). 
+The constructor should call the ```Module``` constructor passing the specified parent and instance name
+to the superclass.
+Within the body of the subclass constructor, any one-time specific module construction can take place.
+Register, port, or wire initialization should **not** be done within the constructor.
 
-Module ports should be declared as wires (and be public). In this case, the ports are not formally distinguished
-as either input or output (as wires can be either). Instead, input versus output is determined by convention: modules 
-creating instances of ```Demo``` should only write to input ports and the ```Demo``` class should only write to its outputs.
-Furthermore, the ```Demo``` class constructor should add connections to its inputs in its constructor so that it is evaluated 
-on any change to those inputs.
+The ```eval()``` function is called whenever:
 
-To help with declaring instances within a module (for example, wires, registers or other submodules), a macro is defined to make that
-easired (and cleaner to read). For example:
+* Any ```Register<>``` instanced within the module changes state, or
+* Any ```Wire<>``` instanced within the module changes value, or
+* Any ```Input<>``` instanced within the module changes value, or
+* Any ```Output<>``` instanced within a **direct child** of the module changes value.
+
+The last comment about ```Output<>``` ports is very important to understand. 
+**Neither** ```Input<>``` nor ```Output<>``` ports can be instanced in a top level module (i.e., a module 
+whose parent is ```NULL```). In addition, ```Output<>``` ports *sensitize* their grandparent,
+not the parent module ("sensitize" meaning evaluate on change). 
+
+In general, any ports within a subclass definition should be declared as ```public``` while
+wires and registers should be declared as ```private```. Ports are visible to users of a subclass
+while registers and wires are related to its implementation.
+
+To help with declaring instances within a module (for example, wires, registers or other submodules), 
+a macro is defined to make that easier (and cleaner to read). For example:
 ```cpp
   Wire<type> instance(myWire);
 ```
-The ```instance()``` macro is defined in ```main.h```:
+For non-module instances, the ```instance()``` macro can also specify an optional initialization value.
+For example:
 ```cpp
-   #define instance(inst_name) inst_name = {this, #inst_name}
+   Register<type> instance(myReg, 0);
 ```
-This macro takes care of declaring the instance correctly and automatically includes ```this``` as the parent module pointer (on the assumption that 
-instances are occuring in the declaration of a module).
+If an initialization value is provided, this value is "remembered" and a function ```reset_to_init_state()```
+defined in the ```Testbench``` class can be used to restore this initialization value to all defined
+registers and wire/port instances.
 
 If required, a module can also declare a public ```init()``` method. There is no formal interface for ```init()``` - modules can define
 whatever API they want. The intent of defining an ```init()``` method is to allow a module to initialize itself prior to simulation start,
 but after all other modules are declared and instanced. In general, such methods should be declared as ```void```.
 
-One final note: the ```Module``` class also includes methods to return the module's name, full instance name, and module type:
+The ```Module``` class provides some additional methods that can assist in implementing subclasses. 
+Methods to return the direct parent of an instance along with a method
+to return the outermost grandparent of an instance:
+```cpp
+     const Module* parent() 
+     const Module* top() 
+```
+
+The class also includes methods to return the module's name, full instance name, and module type:
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
-  inline const std::string typeName() const;
 ```
 The instance name will be a full "dotted" path name (e.g., ```top.next.name```); if a module is top level, the instance name and the module
 name will be identical.
 
-## The ```Wire<>``` Template Class
+## The Signal Classes
 
-The ```Wire``` class is a template class. That is, it can take any type as a base for the information communicated on the
-wire. An example of an instance of a wire declaration:
+There are four types of signals:
+
 ```cpp
-Wire<int> instance(x);
+    template <typename T, int W =-1> Input;
+    template <typename T, int W =-1> Output;
+    template <typename T, int W =-1> Wire;
+    template <typename T, int W =-1> QWire;
 ```
-This declares ```x``` as a wire (whose name is 'x') and is of type ```int```.
+In all cases, the parameter T specifies the type of the signal while the optional parameter W represents 
+its bit width (the default value of -1 indicates that the library should infer with using T).
+The ```Input``` and ```Output``` classes represent I/O ports.
+As already mentioned, neither type can be instanced in a top level module (a module without a parent).
+The ```Wire``` class is intended to be used internal to a module.
+The ```QWire``` class is identical to the ```Wire``` class except that changes in value do not
+trigger evaluation (```eval()```) of the containing module. The ```QWire``` class makes for an
+ideal "probe" signal (much like a scope probe in a physical electrical circuit). 
 
 Reading a wire has no effect on its state. Writing to a wire can be made through assignment:
 ```cpp
