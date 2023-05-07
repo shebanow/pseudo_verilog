@@ -60,18 +60,6 @@ public:
     // Required implementation: called to update the module upon change in its sensitivity lists (wires or registers). 
     virtual void eval() = 0;
 
-    // Methods to keep track of changed/unchanged wires and changed registers.
-    // Actual implementation in Testbench; calls in Wires/Registers should be to root_instance.
-    virtual void add_changed_wire(const WireBase* theWire) {}
-    virtual void remove_changed_wire(const WireBase* theWire) {}
-    virtual void add_changed_register(const RegisterBase* theRegister) {}
-
-    // Keeping track of assigned VCD ID counts.
-    virtual uint32_t& vcd_id_count() { static uint32_t tmp = 0; return tmp; }
-
-    // Virtual function overloaded in Testbench to trigger a module.
-    virtual void trigger_module(const Module* theModule) {}
-
     // Begin/End methods to allow const iterations over instance lists.
     // For access safety, direct access to the instance lists are not allowed.
     std::set<const Module*>::const_iterator m_begin() const { return module_list.cbegin(); }
@@ -86,6 +74,8 @@ protected:
     friend class WireBase;
     friend class RegisterBase;
     friend class vcd::writer;
+    template <typename T> friend class WireTemplateBase;
+    template <typename T, int W> friend class Register;
 
     // Virtual function to evaluate positive edge flops.
     virtual void pos_edge(const Module* m) {}
@@ -100,6 +90,15 @@ protected:
     void remove_wire_instance(const WireBase* w) { wire_list.erase(w); }
     void remove_register_instance(const RegisterBase* r) { register_list.erase(r); }
 
+    // Methods to keep track of changed/unchanged wires and changed registers.
+    // Actual implementation in Testbench; calls in Wires/Registers should be to root_instance.
+    virtual void add_changed_wire(const WireBase* theWire) {}
+    virtual void remove_changed_wire(const WireBase* theWire) {}
+    virtual void add_changed_register(const RegisterBase* theRegister) {}
+
+    // Virtual function overloaded in Testbench to trigger a module.
+    virtual void trigger_module(const Module* theModule) {}
+
 private:
     // Module parent; NULL => top level module. Keep track of root of Module instance tree.
     const Module* parent_module;
@@ -112,6 +111,9 @@ private:
     std::set<const Module*> module_list;
     std::set<const WireBase*> wire_list;
     std::set<const RegisterBase*> register_list;
+
+    // Keeping track of assigned VCD ID counts.
+    virtual uint32_t& vcd_id_count() { static uint32_t tmp = 0; return tmp; }
 
     // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
     void constructor_common() {

@@ -211,11 +211,6 @@ public:
      */
     inline void reset_to_instance_state() { reset_module_to_init_state(this); }
 
-    /* 
-     * vcd_id_count(): return current count of VCD IDs assigned.
-     */
-    virtual uint32_t& vcd_id_count() { return vcd_id_counter; }
-
 protected:
     // VCD writer if enabled.
     vcd::writer* writer;
@@ -244,6 +239,11 @@ private:
 
     // Counter tio record how many VCDs have been issued.
     uint32_t vcd_id_counter;
+
+    /* 
+     * vcd_id_count(): return current count of VCD IDs assigned.
+     */
+    uint32_t& vcd_id_count() { return vcd_id_counter; }
 
     // Method to enqueue a Module to be evaluated ("eval()"). 
     void trigger_module(const Module* theModule) { triggered.insert(theModule); }
