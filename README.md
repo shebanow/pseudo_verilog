@@ -203,6 +203,15 @@ There are four types of signals:
 ```
 In all cases, the parameter T specifies the type of the signal while the optional parameter W represents 
 its bit width (the default value of -1 indicates that the library should infer with using T).
+Note that post instancing of a signal, you can still set or get the bit width of a signal using these methods:
+```cpp
+    void set_width(const int width);
+    int get_width();
+```
+As indicated before, width actually has no effect on operations upon the base class of a signal.
+Width only is employed when dumping to VCD files.
+
+Signals must be instanced within a module.
 The ```Input``` and ```Output``` classes represent I/O ports.
 As already mentioned, neither type can be instanced in a top level module (a module without a parent).
 The ```Wire``` class is intended to be used internal to a module.
@@ -210,112 +219,254 @@ The ```QWire``` class is identical to the ```Wire``` class except that changes i
 trigger evaluation (```eval()```) of the containing module. The ```QWire``` class makes for an
 ideal "probe" signal (much like a scope probe in a physical electrical circuit). 
 
-Reading a wire has no effect on its state. Writing to a wire can be made through assignment:
+Like the ```Module``` class, the signal classes also define methods to return the direct parent 
+of an instance along with a method to return the outermost grandparent of an instance:
+```cpp
+     const Module* parent() 
+     const Module* top() 
+```
+
+All signals have two possible states. Under normal conditions, a signal simply has the value range its base 
+type allows. This value can be read usually using the signal as an ```rvalue``` in an expression.
+However, you can force a read on this value by casting the signal to it's base type (i.e., ```(T) sig```).
+A signal can also be in the ```X``` state as well. Three methods are defined to access a signal's
+```X``` status:
+```cpp
+    bool value_is_x();
+    bool value_was_x();
+    void assign_x();
+```
+The first method ```value_is_x()``` returns true if the signal is current ```X```.
+The second method ```value_was_x()``` returns true if the signal was ```X``` at the start of a clock cycle.
+The third method ```assign_x()``` assigns an ```X``` value to the signal; it is treated
+as an assignment to the signal (see below).
+Note that a signal being in the ```X``` state has no effect on the value of the signal's base type. 
+That is, you can still read or assign to that value (whether it is valid or not). Thus, for logic
+that cares about this, it is important that code first test for ```X``` and then qualify any reads
+accordingly. Also note that writing a value to a signal (via ```operator=()``` - see below) wipes
+out any ```X``` state.
+
+Reading a signal has no effect on its state. Writing to a signal can be made through assignment, for example:
 ```cpp
   x = 3;
 ```
-If the wire had any other value before other than 3, post assignment, any modules connected to ```x``` will be reevaluated. 
-(There is a danger here though with structure/class types: assignments to fields within a wire are not detected by the 
-class. So, it is better to delare a non-templated instance of the wire type outside the wire, make changes to that instance,
-and then assign the whole structure to the wire. This will ensure that the ```Wire<>``` class implementation will evaluate
-any connected modules upon a wire state change. Or alternatively, declare a structure made up of individual wires and registers.)
-
-As mentioned before, modules can connect themselves to wires during module construction time:
+If the signal had any other value before other than 3, post assignment, any 
+modules connected to ```x``` will be reevaluated. 
+Note that there is a danger here though with structure/class types: assignments to fields 
+within a wire are not detected by the class. For example:
 ```cpp
-class Demo : public Module {
-  Demo(const Module* parent, const std::string& name) final : Module(parent, name) {
-    (void) x.connect(this);
-  }
-  
-  virtual void eval() {
-    ... code that evaluates the Demo module ...
-  }
-  
-private:
-  Wire<int> instance(x);
+struct example {
+    int f1;
+    int f2;
 };
-```
-The call to ```connect()``` above connects the calling module to the wire. (Once connected, there is no way to sever
-the connection however (at present).) The prototype for connect is:
-```cpp
-inline bool connect(const Module* theModule);
-```
-The function returns true if this is the first connection call for the module and false if it is already connected.
+Wire<example> ex;
 
-To set the initial state of a wire prior to simulation, there is an ```init``` method:
-```cpp
-  void init(const T& v);
+void eval() {
+    ex.f1 = 3;
+}
 ```
-This method sets the initial state of the wire and schedules for evaluation any modules sensitized on this wire.
+In this example, ```f1``` is a field of the structure ```example```; assigning to this field
+uses normal C++ semantics, not the overloaded ```operator=()``` contained with the ```Wire<>```
+class definition.
+So, it is better to declare wires with the structure like this:
+```cpp
+struct example {
+    Wire<int> f1;
+    Wire<int> f2;
+};
+example ex;
+
+void eval() {
+    ex.f1 = 3;
+}
+```
+This will ensure that the ```Wire<>``` class implementation will evaluate
+any connected modules upon a wire state change.
+
+The following is a list of assignment operators that are overloaded by the signal classes:
+* ```operator=()```: simple assignment.
+* ```operator+=()```: add-assign.
+* ```operator-=()```: subtract-assign.
+* ```operator*=()```: multiply-assign.
+* ```operator/=()```: divide-assign.
+* ```operator%=()```: modulo-assign.
+* ```operator^=()```: bitwise XOR-assign.
+* ```operator&=()```: bitwise AND-assign.
+* ```operator|=()```: bitwise OR-assign.
+* ```operator<<=()```: shift-left-assign.
+* ```operator>>=()```: shift-right-assign.
+
+In addition, both pre- and post- auto-increment (```++```) and auto-decrement (```--```) operators
+are also considered as assignments.
+Assigning or auto-incrementing/auto-decrementing to a signal class-type will 
+trigger ```eval()``` calls per the rules defined above. 
 
 Identical to the ```Module``` class, there are also a number of getters related to naming:
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
-  inline const std::string typeName() const;
 ```
 
 ## The ```Register<>``` Template Class
 
-Like the ```Wire<>``` template class, the ```Register<>``` template class also accepts an arbitrary type as its data container.
-However, unlike ```Wire<>```, assignments to ```Register<>``` instances have deferred effect. This simulates the behavior of
-edge-triggered flip flops. 
-
-All registers are linked to a common ```clock()``` function:
+The ```Register<typename T, int W =-1>``` template class defines clocked registers.
+Registers must be instanced within a module.
+In all cases, the parameter T specifies the type of the signal while the optional parameter W represents 
+its bit width (the default value of -1 indicates that the library should infer with using T).
+Unlike signals, it is perfectly ok to use with structure/class types as the base type for a register.
+Note that post instancing of a register, as with signals,
+you can still set or get the bit width of a register using these methods:
 ```cpp
-  static void clock();
+    void set_width(const int width);
+    int get_width();
 ```
-This function is a class method, meaning all instances shareone implementation of this function. 
-The ```clock``` function should be called by the main simulation driver (more later). 
-Writes to a register are delayed until ```clock``` is called. In fact, if there are multiple writes before the next call of
-```clock()```, only the last write takes effect. Reading from a register always returns the last value written before the last
-call to ```clock()```.
+Like signals, width actually has no effect on operations upon the base class of a register.
+Width only is employed when dumping to VCD files.
 
-As with the ```Wire<>``` template class, the ```Register<>``` template class has an identical ```connect()``` method:
+Registers employ "source-replica" stages (more PC than "master-slave). The source stage is front end and
+the replica stage is back end. Upon a clock edge, the source is copied to the replica. 
+When writing a register, the source is updated. When reading from a register, the replica is provided.
+Direct access to both the replica and source re provided through a pair of methods:
 ```cpp
-inline bool connect(const Module* theModule);
+    T& d();
+    T& q();
+```
+The first method ```d()``` returns a reference to the source.
+The second method ```q()``` returns a reference to the replica.
+
+Clock itself is implied and under control of a ```Testbench``` instance (explained below).
+This behavior mimics a clocked D flipflop with width equal to the base type ```T```.
+Registers are not separately controlled by any enable; such behavior if desired would need to be explicitly coded.
+
+Like the signal classes, the ```Register<>``` class also define methods to return the direct parent 
+of an instance along with a method to return the outermost grandparent of an instance:
+```cpp
+     const Module* parent() 
+     const Module* top() 
 ```
 
-Identical to the ```Module``` class, there are also a number of getters related to naming:
+Like the signals classes, all registers have two possible states. 
+Under normal conditions, a register simply has the value range its base 
+type allows. This replica stage can be read using the signal as an ```rvalue``` in an expression.
+However, you can force a read on this stage by casting the register to it's base type (i.e., ```(T) reg```).
+A replica stage can also be in the ```X``` state as well. Two methods are defined to access a replica's
+```X``` status:
+```cpp
+    bool value_is_x();
+    bool value_will_be_x();
+```
+The first method ```value_is_x()``` returns true if the signal is current ```X```.
+The second method ```value_will_be_x()``` returns true if the signal wil be an ```X``` after the next
+clock edge.
+
+Two other methods can be used to write an ```X``` to the source or both source and replica stages:
+```cpp
+    void assign_x();
+    void reset_to_x();
+```
+The first method ```assign_x()``` just sets the source stage to ```X```.
+The second method ```reset_to_x()```sets both the source and replica stages to ```X```.
+Note that a register being in the ```X``` state has no effect on the 
+value of the register's source or replica base type. 
+That is, you can still read the replica or assign to the source value (whether it is valid or not). Thus, for logic
+that cares about this, it is important that code first test for ```X``` and then qualify any reads
+accordingly. Also note that writing a value to a signal (via ```operator=()``` - see below) wipes
+out any ```X``` state.
+
+To update a register's value, the ```operator<=()``` is overloaded.
+This mimics Verilog's non-blocking assignment operator.
+Assignments to registers thus take the for as in the following example:
+```cpp
+    Register<int> instance(x);
+    void eval() {
+        x <= 2;
+    }
+```
+In this case, ```x``` is updated to the value 2 after the rising edge of clock.
+
+Unlike the signal classes, the direct assignment operator (```operator=()```) and
+all operator-assign operators (e.g., ```operator+=()```) are disabled for registers.
+In addition, both pre- and post- auto-increment (```++```) and auto-decrement (```--```) operators
+are also disabled.
+
+Identical to the ```Module``` and signal classes, there are also a number of getters related to naming:
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
-  inline const std::string typeName() const;
 ```
 
-The register's parent can be accessed via a getter ```parent()``` that returns a ```const Module*``` to the parent Module.
-There is also one class getter, ```uint64_t cycle_count() const;```. This function returns the current clock cycle number.
+## The ```Testbench``` Class
 
-## The ```scheduler``` Namespace
+The ```Testbench``` class is a specialized subclass of ```Module```. 
+As a subclass, ```Testbench``` has all the public and protected features of ```Module``` including
+the all important ```eval()``` function. 
+In general, applications should not directly instance a ```Testbench``` object but instead should
+subclass ```Testbench``` and instance that subclass.
+Assuming a ```Testbench``` subclass instance is a top level module
+(i.e., does not have a parent module), it can instance both ```Wire<>```,
+```QWire<>```, and ```Register<>``` class fields, but cannot instance ```Input<>``` nor ```Output<>```
+ports. Similarly, top-level subclass instances of a ```Module``` class can also be included as class members.
 
-Tying all of the above together, there is a namespace ```scheduler``` with four functions defined:
-* ```void scheduler::schedule_eval(Module* m);```: called by the ```Wire``` and ```Register``` classes upon state change to 
-schedule evaluation of affected modules. Normally, user code should not call this function, but if necessary, a module can 
-force itself to be evaluated in this manner without a atste change.
-* ```bool scheduler::eval_pending();```: returns true if any module is scheduled to be evaluated.
-* ```void scheduler::clear__iterations();```: clears an iteration counter. Normally, we expect few passes on the number of evaluation 
-attempts. However, with very complex module-wire-register interdependencies, we could evaluate modules many times between clocks.
-However, there is a limit, and if this limit is exceeded, further evaluation is suspended. This call clears this limit counter.
-* ```bool scheduler::eval();```: this is the actual evaluation pass. Causes all pending scheduled modules to be evaluated.
-
-A prototype simulation engine could be constructed as follows:
+In addition to features of a ```Module```, subclasses of ```Testbench``` must also implement a ```main()```
+method:
 ```cpp
-bool end_simulation = false;
-
-... instance all top-level Modules, Wires, and Registers; perform module construction. ...
-
-while (!end_simulation) {
-  Register<int>.clock();    // can be any type really
-  while (scheduler::eval_pending()) {
-    if (!scheduler::eval()) {
-      std::cerr << "Simulation evaluation passes exceeded at clock cycle " << Register<int>.cycle_count() << std::endl;
-      exit(1);
-    }
-  }
-  scheduler::clear_iterations();
-}
+    void main(int argc, char** argv);
 ```
+Like the master implementation of ```main()```, a ```Testbench``` subclass ```main()``` is also passed program
+command line arguments. However, these arguments will typically have command arguments pertinent to the main
+program stripped before being called. Having command line arguments passed to a ```Testbench``` subclass
+allows that subclass to configure itself prior to simulation.
 
+Within ```main()```, after processing command line arguments, the method should perform a simulation of the
+hardware system it intends to model. To that end, the ```Testbench``` subclass defines a ```simulation()```
+method to simulate its system:
+```cpp
+    void simulation(const bool continue_clock_sequence = false);
+```
+This method will run a simulation until some kind of stop condition arises.
+The one argument to this method, ```continue_clock_sequence```, controls whether this is a new
+simulation sequence or a continuation of a last simulation call. By default, a new simulation is assumed.
+(For simple models, one simulation is perhaps enough. For more complex models which have multiple
+test cases, it is perhaps easier to call ```simulation()``` once per test case, and as such each 
+successive call is a clock count-wise continuation of the last simulation.)
+
+To control ```simulation()```, there are a number of control methods defined within the
+```Testbench``` subclass:
+```cpp
+    void set_vcd_writer(const vcd::writer* w);
+    void set_idle_limit(const int32_t idle_limit);
+    void set_cycle_limit(const int32_t cycle_limit);
+    void set_iteration_limit(const int32_t iteration_limit);
+ ```
+The first method ```set_vcd_writer()``` installs a VCD dump writer (an instance of the ```vcd::writer``` class
+defined later in this document). If not installed, no VCD file will be dumped (and VCD dumps can in fact be 
+later turned off by calling this with a ```NULL``` argument). By default, there is no writer.
+
+The second method ```set_idle_limit()``` sets a limit on the number of cycles the simulation can be idle
+before throwing an error. This is the number of cycles in which no ```eval()``` was invoked for any module
+instance in the hierarchy of a ```Testbench``` subclass instance. By default, there is no limit.
+
+The third method ```set_cycle_limit()``` sets a cycle limit upon the simulation. That is, the maximum
+number of clock cycles to run before quitting the simulation. (This limit applies across all ```simulation()```
+calls even if they include a ```continue_clock_sequence``` condition.) By default, there is no inherent limit.
+
+The fourth method ```set_iteration_limit()``` sets an upper bound on the number of iterations of evaluation
+cycles within any one clock cycle. Recall that changes to signals or registers cause evaluations of their
+instancing modules or grand-modules (for ```Output<>``` instances). Each clock, any pending evaluations
+are executed. If there are no subsequent evaluations generated as a result of these evaluations, iterations
+stop and simulation proceeds to the next clock. However, if ether are new evaluations, these are treated
+as a new iteration. If logic is mis-designed, these iterations in theory could go on forever. 
+(Consider a ring oscillator spread across multiple modules.)
+The iteration limit restricts the number of such iterations so as to not allow an infinite loop.
+By default, there is no limit.
+
+Mirroring the setters defined above, there are getters to allow applications to access these parameters:
+```cpp
+    vcd::writer* get_vcd_writer();
+    int32_t get_idle_limit();
+    int32_t get_cycle_limit();
+    int32_t get_iteration_limit();
+```
 # Example: A Traffic Light Controller (TLC)
 
 We provide an example Module using the classic "traffic light controller" (TLC) usually taught in Logic Design 101 classes.
