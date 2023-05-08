@@ -81,8 +81,9 @@ protected:
     virtual ~RegisterBase() { const_cast<Module*>(parent_module)->remove_register_instance(this); }
 
 public: 
-    // disallow general public use
+    // Disallow general public use (constructor and copy constructor).
     RegisterBase() = delete;
+    RegisterBase(const RegisterBase& r) = delete;
 
     // General naming methods.
     inline const std::string name() const { return register_name; }
@@ -231,7 +232,13 @@ public:
 
     // X state setters.
     inline void assign_x() { source_x = true; }
-    inline void reset_to_x() { replica_x = source_x = true; }
+    void reset_to_x() {
+        if (!replica_x) {
+            const_cast<Module*>(root_instance)->trigger_module(parent_module);
+            const_cast<Module*>(root_instance)->add_changed_register(this);
+        }
+        replica_x = source_x = true;
+    }
 
     // VCD string printer setter.
     void set_vcd_string_printer(const vcd::value2string_t<T>& printer) { v2s = printer; }
@@ -281,7 +288,6 @@ private:
 
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
-        // TODO: this code does not work correctly with reset_to_x() above.
         if (replica_x ? !source_x : (source_x || replica != source)) {
             const_cast<Module*>(root_instance)->trigger_module(parent_module);
             const_cast<Module*>(root_instance)->add_changed_register(this);
