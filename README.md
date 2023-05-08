@@ -1,9 +1,8 @@
-NOTE: this doc is out of date and needs revision!
-
 # The Pseudo-Verilog Header-only Library
 
 This header-only library implements a Verilog-like C++ simulation infrastructure for hardware design.
-This library is an alternative to SystemC (https://systemc.org/overview/systemc/) with the intent to create a more Verliog-look design.
+This library is an alternative to SystemC (https://systemc.org/overview/systemc/) with the 
+intent to create a more Verilog-lookalike design.
 Signals in this library are quasi three state (0, 1, and 'x'). 
 
 # A Simple Example
@@ -428,15 +427,88 @@ The one argument to this method, ```continue_clock_sequence```, controls whether
 simulation sequence or a continuation of a last simulation call. By default, a new simulation is assumed.
 (For simple models, one simulation is perhaps enough. For more complex models which have multiple
 test cases, it is perhaps easier to call ```simulation()``` once per test case, and as such each 
-successive call is a clock count-wise continuation of the last simulation.)
+successive call is a clock count-wise continuation of the last simulation.) To assist with running
+multiple simulations, there is a method to restore initial state:
+```cpp
+    void reset_to_instance_state();
+```
+This method will restore all signals and registers to the state they had when they were instanced.
 
-To control ```simulation()```, there are a number of control methods defined within the
-```Testbench``` subclass:
+The simplified algorithm implemented by ```simulation()``` is shown below (without VCD-related code):
+```cpp
+void simulation(const bool continue_clock_sequence = false) {
+    // Clock, idle, and iteration counters.
+    static uint32_t clock_num;
+    uint32_t idle_cycles = 0;
+    uint32_t iteration_count = 0;
+    
+    // Variables controlling simulation.
+    extern uint32_t opt_cycle_limit;
+    extern uint32_t opt_idle_limit;
+    extern uint32_t opt_iteration_limit;
+    extern bool exit_simulation;
+    
+    // The next call enqueues *all* instanced module's eval() code on the "eval_queue"
+    enqueue_all_modules();
+    
+    // If we are not continuing a simulation from a prior one, set clock number back to 1.
+    if (!continue_clock_sequence)
+        clock_num = 1;
+        
+    // Main simulation loop: ends when exit_simulation is set OR we hit a clock cycle limit.
+    for ( ; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
+        // "pre_clock()" is an optional user-defined method called before any clocking occurs.
+        this->pre_clock();
+        
+        // Advance all flops via a posedge clock
+        pos_edge_clock();
+        
+        // We now check to see if we have hit an idle limit (if there is one).
+        if (opt_idle_limit > 0 && eval_queue.empty() && ++idle_cycles == opt_idle_limit)
+            throw std::runtime_error(...);
+            
+        // Evaluation loop: run until no more evaluations are scheduled.
+        while (!eval_queue.empty()) {
+            // Clear idle cycle count as we are not idle.
+            idle_cycles = 0;
+            
+            // If there is a limit on iteration count, check it.
+            if (opt_iteration_limit > 0 && iteration_count++ == opt_iteration_limit)
+                throw std::runtime_error(...);
+                
+            // Make a copy of the evaluation queue, then clear the evaluation queue.
+            eval_queue_copy = eval_queue; 
+            eval_queue.clear();
+            
+            // Call "eval()" for every module enqueued on the copy of the evaluation queue.
+            // This could cause new eval() calls to enqueue in the evaluation queue.
+            for (Module* m = eval_queue.pop(); m != NULL; m = eval_queue.pop())
+                m->eval();
+        }
+        
+        // Clear iteration count for next loop.
+        iteration_count = 0;
+        
+        // "post_clock()" is an optional user-defined method called after any clocking occurs.
+        this->post_clock();
+    }
+}
+```
+The code above includes inline comments to explain its behavior. The boolean ```exit_simulation```
+can be set within module ```eval()``` code as they are being evaluated to force simulation exit.
+There is a method to return the current clock cycle number in case this is needed:
+```cpp
+    const uint32_t get_clock();
+```
+
+As mentioned in the simplified code above, there are variables that control ```simulation()```.
+Methods to set these variables are:
 ```cpp
     void set_vcd_writer(const vcd::writer* w);
     void set_idle_limit(const int32_t idle_limit);
     void set_cycle_limit(const int32_t cycle_limit);
     void set_iteration_limit(const int32_t iteration_limit);
+    void end_simulation();
  ```
 The first method ```set_vcd_writer()``` installs a VCD dump writer (an instance of the ```vcd::writer``` class
 defined later in this document). If not installed, no VCD file will be dumped (and VCD dumps can in fact be 
@@ -460,6 +532,9 @@ as a new iteration. If logic is mis-designed, these iterations in theory could g
 The iteration limit restricts the number of such iterations so as to not allow an infinite loop.
 By default, there is no limit.
 
+The fifth methdo ```end_simulation()``` can be called within a modules ```eval()``` block to end the
+current simulation at the end of the current clock cycle.
+
 Mirroring the setters defined above, there are getters to allow applications to access these parameters:
 ```cpp
     vcd::writer* get_vcd_writer();
@@ -467,25 +542,140 @@ Mirroring the setters defined above, there are getters to allow applications to 
     int32_t get_cycle_limit();
     int32_t get_iteration_limit();
 ```
+
+Finally, as an aid in writing test cases, there are a number of methods defined:
+```cpp
+    void begin_test();
+    template <typename ... Args> void end_test_pass(const char* fmt, Args ... args);
+    template <typename ... Args> void end_test_fail(const char* fmt, Args ... args);
+    const bool in_test();
+    const int n_pass();
+    const int n_fail();
+```
+The ```begin_test()``` method is used to mark the beginning of a test case run.
+There are two variants of ending a test, one ```end_test_pass(...)``` to end a test case in the
+passing state and one ```end_test_fail(...)``` to end a test case in the failig state.
+Both variants can be treated as ```printf()``` statements.
+The ```in_test()``` method returns true if we are currently running a test.
+The last two methods return the number of passing and failing test cases run so far.
+
+# VCD Generation
+
+The library can be used to generate Verilog change dump (VCD) files.
+In the ```vcd``` namespace, the ```writer``` class is defined to create a VCD writer object.
+The constructor for a writer is defined as:
+```cpp
+    writer(const std::string& file_name);
+```
+It takes one argument, the name of the VCD file to create.
+The resultant object created represents an open VCD file to be dumped to.
+This file will be open until the writer object is destructed.
+Note that if an error results in attempting to open the VCD file, 
+an error diagnostic will be printed to stderr and the file will not be opened.
+Applications can test for this using the ```is_open()``` method:
+```cpp
+    bool is_open();
+```
+
+To use the writer object, it must be bound to a ```Testbench``` subclass instance **before** the
+```simulation()``` method in that class is invoked. As mentioned, this can be done via the 
+```set_vcd_writer()``` method of the ```Testbench``` subclass.
+
+Normally, once bound, the writer will dump all changes for all simulated clock cycles.
+In some cases, this could result in very large VCD files.
+To restrict the range of dumps, two methods are defined in the writer class:
+````cpp
+    void set_vcd_start_clock(const int32_t v);
+    void set_vcd_stop_clock(const int32_t v);
+````
+They set the first and last clock to perform dumps. Either or both can be set. A negative value
+passed to either disables their function. Two getters are defined to return their current values:
+```cpp
+  const int32_t get_vcd_start_clock();
+  const int32_t get_vcd_stop_clock();
+```
+
+Normally, in a VCD file, the string ```*@``` is used as an ID for the ```clk``` (clock) signal implicitly defined.
+This can be overridden using a method:
+```cpp
+    void set_vcd_clock_ID(const std::string id);
+```
+There is a corresponding getter to return the current string.
+```cpp
+    const std::string& get_vcd_clock_ID();
+```
+A caution: for normal variables, the writer class uses a prefix ```@``` followed by a hex code to label
+variables. This cannot be changed.
+
+VCD files require both a timescale and associated units value. Two enumerator classes are defined for this 
+purpose.
+```cpp
+    // Enum class for timescale.
+    enum class TS_time {
+        t1 = 0,         // == 1
+        t10,            // == 10
+        t100            // == 100
+    };
+
+    // Enum class for time units.
+    enum class TS_unit {
+        s = 0,          // seconds  (10^0)
+        ms,             // msec     (10^-3)
+        us,             // usec     (10^-6)
+        ns,             // nsec     (10^-9)
+        ps,             // psec     (10^-12)
+        fs              // fsec     (10^-15)
+    };
+```
+A control method is used to set a simulation operating point in the writer:
+```cpp
+    void set_operating_point(const float freq, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns);
+```
+The first parameter ```freq``` defines the simulated frequency.
+The ```time``` and ```unit``` parameters then define the timescale and unit for the VCD file.
+The method then computes "ticks per clock" based on these parameters (the number of Verilog time
+ticks for each clock cycle).
+By default, unless set by this method, the VCD file assumes a frequency of 1 Hz and a timescale string of "1 s".
+Four getter methods are defined to return these parameters:
+```cpp
+    float get_clock_freq();
+    float get_timescale();
+    uint64_t get_ticks_per_clock();
+    const std::string& get_time_str();
+```
+
 # Example: A Traffic Light Controller (TLC)
 
-We provide an example Module using the classic "traffic light controller" (TLC) usually taught in Logic Design 101 classes.
+We provide an example ```Module``` using the classic "traffic light controller" (TLC) usually 
+taught in Logic Design 101 classes.
 
 ```cpp
 /*
- * tlc.h - traffic light controller
+ * Sample pseudo-verilog file - TLC: traffic light controller.
+ * Copyright (c) 2023 Michael C Shebanow
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-include <iostream>
-include <cstdint>
-include <string>
-include "module.h"
-include "wire.h"
-include "register.h"
+#include <iostream>
+#include <cstdint>
+#include <string>
+#include <getopt.h>
+#include "pv.h"
 
 enum color {
-    red,
-    yellow,
-    green
+    red = 0,
+    yellow = 1,
+    green = 2
 };
 
 const char* color2str(const color c) {
@@ -494,72 +684,79 @@ const char* color2str(const color c) {
     else return "green";
 }
 
-class tlc final : public Module {
+class tlc : public Module {
 public:
-    tlc(const Module* p, const char* str) : tlc(p, std::string(str)) {}
-    tlc(const Module* p, const std::string& nm) : Module(p, nm) {
-        // hookup input delay
-        delay.connect(this);
-
-        // hookup registers
-        ew_state.connect(this);
-        ns_state.connect(this);
-        timer.connect(this);
-        ns_cycle.connect(this);
-
-        // initialize
-        ns_state = red;
-        ew_state = green;
-        north_south = red;
-        east_west = green;
-        ns_cycle = false;
-        timer = 0;
-    }
+    // Constructors.
+    tlc(const Module* p, const char* str) : Module(p, str) {}
+    tlc(const Module* p, const std::string& nm) : Module(p, nm) {}
 
     // eval function
     void eval() {
+        // Reset always takes precedence
+        if (!reset_x) {
+            // Init registers
+            ew_state <= green;
+            ns_state <= red;
+            timer <= 0;
+            ns_cycle <= false;
+
+            // Init outputs
+            east_west = green;
+            north_south = red;
+
+            // All done this clock.
+            return;
+        }
+
+        // If we are running a north-south cycle...
         if (ns_cycle) {
             if (ns_state == green) {
                 if (timer == 0) {
-                    ns_state = yellow;
-                    timer = delay;
+                    ns_state <= yellow;
+                    timer <= delay;
                 }
-                else timer = timer - 1;
+                else timer <= timer - 1;
             }
             else if (ns_state == yellow)
-                ns_state = red;
+                ns_state <= red;
             else if (ns_state == red) {
-                ns_cycle = false;
-                ew_state = green;
-            }
-        } else {
-            if (ew_state == green) {
-                if (timer == 0) {
-                    ew_state = yellow;
-                    timer = delay;
-                }
-                else timer = timer - 1;
-            }
-            else if (ew_state == yellow)
-                ew_state = red;
-            else if (ew_state == red) {
-                ns_cycle = true;
-                ns_state = green;
+                ns_cycle <= false;
+                ew_state <= green;
             }
         }
+
+        // Or an east-west cycle...
+        else {
+            if (ew_state == green) {
+                if (timer == 0) {
+                    ew_state <= yellow;
+                    timer <= delay;
+                }
+                else timer <= timer - 1;
+            }
+            else if (ew_state == yellow)
+                ew_state <= red;
+            else if (ew_state == red) {
+                ns_cycle <= true;
+                ns_state <= green;
+            }
+        }
+
+        // Drive traffic light outputs.
         north_south = ns_state;
         east_west = ew_state;
     }
 
     // Ports
-    Wire<uint32_t> instance(delay);
-    Wire<color> instance(east_west);
-    Wire<color> instance(north_south);
+    Input<bool> instance(reset_x);
+    Input<uint32_t, 8> instance(delay);
+    Output<color, 2> instance(east_west);
+    Output<color, 2> instance(north_south);
 
 private:
-    Register<color> instance(ew_state);
-    Register<color> instance(ns_state);
-    Register<uint32_t> instance(timer);
+    Register<color, 2> instance(ew_state);
+    Register<color, 2> instance(ns_state);
+    Register<uint32_t, 8> instance(timer);
     Register<bool> instance(ns_cycle);
 };
 ```
@@ -584,3 +781,77 @@ The last public declaration in the TLC module are the three ports, one input ```
 output wires representing the state of the north-south and east-west traffic lights.
 
 Private to the TLC are the registers representing the state of the TLC.
+
+The associated testbench for the TLC module is shown below:
+```cpp
+// TLC test bench
+struct tlc_tb : public Testbench {
+    // The TLC instance.
+    tlc instance(iTLC);
+
+    // Constructors.
+    tlc_tb(const std::string& nm) : Testbench(nm) { opt_timer_ticks = 4; }
+    tlc_tb(const char* str) : Testbench(str) { opt_timer_ticks = 4; }
+
+    void tlc_usage() {
+        extern char* prog_name;
+        std::cerr << "usage: " << prog_name << " <program options> tlc [-t timer_ticks]" << std::endl;
+        exit(1);
+    }
+
+    void main(int argc, char** argv) {
+        int ch;
+        int32_t cycle_limit = 32;
+
+        // Process TLC-specific command line options
+        while ((ch = getopt(argc, argv, "+t:")) != -1) {
+            switch (ch) {
+            case 't':
+                opt_timer_ticks = atoi(optarg);
+                break;
+            default:
+                tlc_usage();
+                /* NOT REACHED */
+                break;
+            }
+        }
+        argc -= optind;
+        if (argc) 
+            tlc_usage();
+
+        // Set simulation() options.
+        set_cycle_limit(cycle_limit);
+        set_iteration_limit(10);
+
+        // Do the simulation
+        this->begin_test();
+        try {
+            this->simulation();
+        } catch (const std::exception& e) {
+            std::cerr << "Caught system error: " << e.what() << std::endl;
+            exit(1);
+        }
+        this->end_test_pass("TLC passed after %d clocks\n", this->get_clock());
+    }
+
+    // activity around clocks
+    void eval() {
+        if (!reset_done) {
+            reset_done <= true;
+            iTLC.delay = opt_timer_ticks - 1;
+            iTLC.reset_x = false;
+        } else
+            iTLC.reset_x = true;
+    }
+
+    void post_clock(const uint32_t cycle_num) {
+        printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
+    }
+
+    // Timer length option.
+    int opt_timer_ticks;
+
+    // Reset state machine (simple).
+    Register<bool> instance(reset_done, false);
+};
+```

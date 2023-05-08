@@ -281,6 +281,7 @@ private:
 
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
+        // TODO: this code does not work correctly with reset_to_x() above.
         if (replica_x ? !source_x : (source_x || replica != source)) {
             const_cast<Module*>(root_instance)->trigger_module(parent_module);
             const_cast<Module*>(root_instance)->add_changed_register(this);
