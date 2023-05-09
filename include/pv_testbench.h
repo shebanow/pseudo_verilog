@@ -73,15 +73,13 @@ public:
     // Simulation runtime getter.
     inline const uint32_t get_clock() const { return clock_num; }
 
-    // Simulation run time control.
-    inline void end_simulation() { exit_simulation = true; }
-
     // The main simulation method.
-    void simulation(const bool continue_clock_sequence = false) {
+    int simulation(const bool continue_clock_sequence = false) {
         uint32_t idle_cycles = 0;
         uint32_t iteration_count = 0;
         bool had_stop_event = false;
         exit_simulation = false;
+        exit_code = 0;
 
         // If we are writing a VCD, generate header and definitions, initial state.
         // If dump start clock is positive non-zero, also execute a VCD dumpoff() command.
@@ -102,11 +100,14 @@ public:
         trigger_all_modules(this);
 
         // Run simulation cycles. 
-        // The first test resets clock_num to 1 if we are *not* continuing a clock sequence from any prior simulation.
+        // The first test resets clock_num to 0 if we are *not* continuing a clock sequence from any prior simulation.
         // By default, this is the case. This control is useful if a test bench uses multiple simulation calls.
         if (!continue_clock_sequence)
-            clock_num = 1;
-        for ( ; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
+            clock_num = 0;
+        do {
+            // Increment clock number to the next numbered cycle.
+            clock_num++;
+
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
@@ -176,7 +177,11 @@ public:
             // Run post-clock edge against the loaded test bench.
             iteration_count = 0;
             this->post_clock(clock_num);
-        }
+
+            // If end of simulation requested, exit loop.
+            if (exit_simulation)
+                break;
+        } while (opt_cycle_limit <= 0 || clock_num < opt_cycle_limit);
 
         // If had a VCD stop clock and it triggered, need to add final dump of 'x values.
         if (writer != NULL && writer->is_open() && had_stop_event) {
@@ -185,26 +190,27 @@ public:
             writer->emit_x_clock();
             writer->vcd_dumpoff(this);
         }
+
+        // All done, return exit code.
+        return exit_code;
     }
 
-    /*
-     * Methods supporting test case state.
-     */
+    // Support code to end simulation.
+    // Marks end of simulation, sets exit code to code, and formats an optional error string.
+    // (Leave fmt string NULL if no string desired). 
+    template<typename ... Args> void end_simulation(const int code, const char* fmt, Args ... args) {
+        static char buffer[256]; 
+        exit_simulation = true;
+        exit_code = code;
+        if (fmt) {
+            snprint(buffer, 255, fmt, args ...);
+            exit_string = buffer;
+        } else
+            exit_string.clear();
+    }
 
-    void begin_test() { in_test_case = true; }
-    template<typename ... Args> void end_test_pass(const char* fmt, Args ... args) {
-        printf(fmt, args ...);
-        in_test_case = false;
-        pass_count++;
-    }
-    template<typename ... Args> void end_test_fail(const char* fmt, Args ... args) {
-        printf(fmt, args ...);
-        in_test_case = false;
-        fail_count++;
-    }
-    inline const bool in_test() const { return in_test_case; }
-    inline const int n_pass() const { return pass_count; }
-    inline const int n_fail() const { return fail_count; }
+    // Return error string.
+    const std::string& error_string() const { return exit_string; }
 
     /*
      * Method to reset all modules to their initial state when instanced.
@@ -221,11 +227,10 @@ private:
     int32_t opt_iteration_limit;
     int32_t opt_idle_limit;
 
-    // Test case parameters.
-    bool in_test_case;   
-    int pass_count;
-    int fail_count;
+    // Simulation control parameters.
     bool exit_simulation;
+    int exit_code;
+    std::string exit_string;
 
     // Clock cycle counter.
     uint32_t clock_num;
@@ -329,11 +334,9 @@ private:
         opt_iteration_limit = -1;
         opt_idle_limit = -1;
         writer = NULL;
-
-        // Set default test case parameters.
-        in_test_case = false;
-        pass_count = fail_count = 0;
         exit_simulation = false;
+        exit_code = 0;
+        exit_string.clear();
 
         // Reset initial clock cycle and VCD ID counters.
         clock_num = 0;
