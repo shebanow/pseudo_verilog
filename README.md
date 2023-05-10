@@ -925,14 +925,17 @@ struct tlc_tb : public Testbench {
         set_iteration_limit(10);
 
         // Do the simulation
-        this->begin_test();
+        int exit_code;
         try {
-            this->simulation();
+            exit_code = simulation();
         } catch (const std::exception& e) {
             std::cerr << "Caught system error: " << e.what() << std::endl;
             exit(1);
         }
-        this->end_test_pass("TLC passed after %d clocks\n", this->get_clock());
+        if (exit_code != 0) 
+            fprintf(stderr, "Simulation error: %s\n", error_string().c_str());
+        else
+            printf("TLC passed simulation after %u clocks.\n", get_clock());
     }
 
     // activity around clocks
