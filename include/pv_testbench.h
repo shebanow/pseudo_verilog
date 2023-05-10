@@ -203,7 +203,7 @@ public:
         exit_simulation = true;
         exit_code = code;
         if (fmt) {
-            snprint(buffer, 255, fmt, args ...);
+            snprintf(buffer, 255, fmt, args ...);
             exit_string = buffer;
         } else
             exit_string.clear();
