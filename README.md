@@ -437,17 +437,19 @@ This method will restore all signals and registers to the state they had when th
 
 The simplified algorithm implemented by ```simulation()``` is shown below (without VCD-related code):
 ```cpp
-void simulation(const bool continue_clock_sequence = false) {
+int simulation(const bool continue_clock_sequence = false) {
     // Clock, idle, and iteration counters.
     static uint32_t clock_num;
     uint32_t idle_cycles = 0;
     uint32_t iteration_count = 0;
+    int code = 0;
     
     // Variables controlling simulation.
     extern uint32_t opt_cycle_limit;
     extern uint32_t opt_idle_limit;
     extern uint32_t opt_iteration_limit;
     extern bool exit_simulation;
+    extern int exit_code;
     
     // The next call enqueues *all* instanced module's eval() code on the "eval_queue"
     enqueue_all_modules();
@@ -455,7 +457,7 @@ void simulation(const bool continue_clock_sequence = false) {
     // If we are not continuing a simulation from a prior one, set clock number back to 0.
     if (!continue_clock_sequence)
         clock_num = 0;
-        
+    
     // Main simulation loop: ends when exit_simulation is set OR we hit a clock cycle limit.
     do {
         // Increment clock number to the next numbered cycle.
@@ -497,9 +499,12 @@ void simulation(const bool continue_clock_sequence = false) {
         this->post_clock(clock_num);
         
         // If end of simulation requested, exit loop.
-        if (exit_simulation)
+        if (exit_simulation) {
+            code = exit_code;
             break;
+        }
     } while (opt_cycle_limit <= 0 || clock_num < opt_cycle_limit);
+    return code;
 }
 ```
 The code above includes inline comments to explain its behavior. The boolean ```exit_simulation```
@@ -669,10 +674,16 @@ and connect them within the ```eval()``` method.
 
 To invoke simulation within ```main(...)```, we recommend guarding the ```simulation()``` call in a try-catch block:
 ```cpp
+    int code;
     try {
-        this->simulation();
+        code = simulation();
     } catch (const std::exception& e) {
         std::cerr << "Caught system error: " << e.what() << std::endl;
+        exit(1);
+    }
+    if (code != 0) {
+        if (error_string.length() > 0)
+            fprintf(stderr, "%s\n", error_string().c_str());
         exit(1);
     }
 ```
@@ -914,14 +925,17 @@ struct tlc_tb : public Testbench {
         set_iteration_limit(10);
 
         // Do the simulation
-        this->begin_test();
+        int exit_code;
         try {
-            this->simulation();
+            exit_code = simulation();
         } catch (const std::exception& e) {
             std::cerr << "Caught system error: " << e.what() << std::endl;
             exit(1);
         }
-        this->end_test_pass("TLC passed after %d clocks\n", this->get_clock());
+        if (exit_code != 0) 
+            fprintf(stderr, "Simulation error: %s\n", error_string().c_str());
+        else
+            printf("TLC passed simulation after %u clocks.\n", get_clock());
     }
 
     // activity around clocks
