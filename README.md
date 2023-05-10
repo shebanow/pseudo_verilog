@@ -420,9 +420,10 @@ Within ```main()```, after processing command line arguments, the method should 
 hardware system it intends to model. To that end, the ```Testbench``` subclass defines a ```simulation()```
 method to simulate its system:
 ```cpp
-    void simulation(const bool continue_clock_sequence = false);
+    int simulation(const bool continue_clock_sequence = false);
 ```
 This method will run a simulation until some kind of stop condition arises.
+Upon exit, a return code is returned (see below on ```end_simulation()```).
 The one argument to this method, ```continue_clock_sequence```, controls whether this is a new
 simulation sequence or a continuation of a last simulation call. By default, a new simulation is assumed.
 (For simple models, one simulation is perhaps enough. For more complex models which have multiple
@@ -451,14 +452,17 @@ void simulation(const bool continue_clock_sequence = false) {
     // The next call enqueues *all* instanced module's eval() code on the "eval_queue"
     enqueue_all_modules();
     
-    // If we are not continuing a simulation from a prior one, set clock number back to 1.
+    // If we are not continuing a simulation from a prior one, set clock number back to 0.
     if (!continue_clock_sequence)
-        clock_num = 1;
+        clock_num = 0;
         
     // Main simulation loop: ends when exit_simulation is set OR we hit a clock cycle limit.
-    for ( ; !exit_simulation && (opt_cycle_limit <= 0 || clock_num <= opt_cycle_limit); clock_num++) {
-        // "pre_clock()" is an optional user-defined method called before any clocking occurs.
-        this->pre_clock();
+    do {
+        // Increment clock number to the next numbered cycle.
+        clock_num++;
+        
+        // "pre_clock(...)" is an optional user-defined method called before any change activity occurs.
+        this->pre_clock(clock_num);
         
         // Advance all flops via a posedge clock
         pos_edge_clock();
@@ -489,9 +493,13 @@ void simulation(const bool continue_clock_sequence = false) {
         // Clear iteration count for next loop.
         iteration_count = 0;
         
-        // "post_clock()" is an optional user-defined method called after any clocking occurs.
-        this->post_clock();
-    }
+        // "post_clock(...)" is an optional user-defined method called after any change activity occurs.
+        this->post_clock(clock_num);
+        
+        // If end of simulation requested, exit loop.
+        if (exit_simulation)
+            break;
+    } while (opt_cycle_limit <= 0 || clock_num < opt_cycle_limit);
 }
 ```
 The code above includes inline comments to explain its behavior. The boolean ```exit_simulation```
@@ -508,7 +516,6 @@ Methods to set these variables are:
     void set_idle_limit(const int32_t idle_limit);
     void set_cycle_limit(const int32_t cycle_limit);
     void set_iteration_limit(const int32_t iteration_limit);
-    void end_simulation();
  ```
 The first method ```set_vcd_writer()``` installs a VCD dump writer (an instance of the ```vcd::writer``` class
 defined later in this document). If not installed, no VCD file will be dumped (and VCD dumps can in fact be 
@@ -532,9 +539,6 @@ as a new iteration. If logic is mis-designed, these iterations in theory could g
 The iteration limit restricts the number of such iterations so as to not allow an infinite loop.
 By default, there is no limit.
 
-The fifth methdo ```end_simulation()``` can be called within a modules ```eval()``` block to end the
-current simulation at the end of the current clock cycle.
-
 Mirroring the setters defined above, there are getters to allow applications to access these parameters:
 ```cpp
     vcd::writer* get_vcd_writer();
@@ -543,21 +547,26 @@ Mirroring the setters defined above, there are getters to allow applications to 
     int32_t get_iteration_limit();
 ```
 
-Finally, as an aid in writing test cases, there are a number of methods defined:
+Normally, a simulation would be restricted to run some finite number of clocks controlled via
+```set_cycle_limit()```. However, an alternative is to have the simulated design via its testbench
+end the simulation. A specific method is provided for this purpose:
 ```cpp
-    void begin_test();
-    template <typename ... Args> void end_test_pass(const char* fmt, Args ... args);
-    template <typename ... Args> void end_test_fail(const char* fmt, Args ... args);
-    const bool in_test();
-    const int n_pass();
-    const int n_fail();
+    template<typename ... Args> void end_simulation(const int code, const char* fmt, Args ... args);
 ```
-The ```begin_test()``` method is used to mark the beginning of a test case run.
-There are two variants of ending a test, one ```end_test_pass(...)``` to end a test case in the
-passing state and one ```end_test_fail(...)``` to end a test case in the failig state.
-Both variants can be treated as ```printf()``` statements.
-The ```in_test()``` method returns true if we are currently running a test.
-The last two methods return the number of passing and failing test cases run so far.
+This command will end a simulation at the end of the current clock cycle (after ```post_clock(...)``` 
+is completed). The arguments to the method begin with a return ```code``` for the ```simulation()``` call.
+Normal completion is signified using a return code of 0; abnormal completions can be signified with
+any non-zero value, a user defined value. Note that the ```end_simulation()``` should not be called
+by any ```eval()``` method as these methods can be speculatively called in some sense.
+
+In addition to the return code, an optional return string can
+be generated as well (with the same syntax as ```printf()```). If this is not desired, leave the ```fmt```
+argument ```NULL```. Upon exit, ```simulation()``` returns the aforementioned exit code. And if 
+```end_simulation()``` was never called, a return code of zero will be returned. If desired, the
+exit string can be accessed via:
+```cpp
+    const std::string& error_string();
+```
 
 # VCD Generation
 
@@ -643,6 +652,87 @@ Four getter methods are defined to return these parameters:
     uint64_t get_ticks_per_clock();
     const std::string& get_time_str();
 ```
+
+# Programming Recommendations
+
+The pseudo-verilog library is designed with the intent that there be one ```Testbench``` subclass instance
+active at any one time. Although it is possible to have more than one, each will have its own ```simulation()```
+method along with the implied clock it defines, and clocks between simulation modules will not be synchronized.
+Furthermore, we have not tested what would happen if VCD dumps are enabled and the same ```vcd::writer``` instance
+was bound to all instances of the ```Testbench``` subclasses - probably not good.
+
+In coding a ```Testbench``` subclass, all testing work should be driven by the ```main(...)``` method.
+The ```eval()``` method of the subclass is really intended for logic that is employed to drive the *device under
+test* (DUT). The DUT is the real object of desire. In general, DUT should be a single instance (representing
+a chip or IP block), but in theory a ```Testbench``` subclass could implement multiple submodule instances
+and connect them within the ```eval()``` method.
+
+To invoke simulation within ```main(...)```, we recommend guarding the ```simulation()``` call in a try-catch block:
+```cpp
+    try {
+        this->simulation();
+    } catch (const std::exception& e) {
+        std::cerr << "Caught system error: " << e.what() << std::endl;
+        exit(1);
+    }
+```
+The simulation call can throw errors if idle cycles are exceeded or an iteration limit is reached. We also 
+recommend preconfiguring simulation controls via these calls:
+* ```void set_idle_limit(const int32_t idle_limit)```: set a limit on the number of idle cycles. Unless you are
+very sure that deadlocks are impossible, we recommend setting some limit here. 
+* ```void set_iteration_limit(const int32_t iteration_limit)```: set a limit on the number of iterations.
+By default, iteration limit is set to 10; applications could ignore changing this parameter if desired.
+
+As mentioned in the detailed description, it is possible to invoke ```simulation(...)``` multiple times, continuing
+clock numbering across the calls.
+A typical use pattern would look like this:
+```cpp
+    for (int test_case = 0; test_case < num_cases; test_case++) {
+        reset_to_instance_state();
+        ... set up test case ...
+        try {
+            this->simulation(test_case != 0);
+        } catch (const std::exception& e) {
+            std::cerr << "Caught system error: " << e.what() << std::endl;
+            exit(1);
+        }      
+    }
+```
+Two facets of this code are very important to note:
+* The call to ```reset_to_instance_state()```: this resets the simulator state back to what it was
+when the objects in the simulator were instanced. Without this call, simulations after the first call
+could be using a prior call's state with the unintended consequences that could follow from that.
+* Passing the test in the call to ```simulation(...)``` (i.e., "```test_case != 0```"): this ensures 
+that clock numbering continues from the last call except for the very first call. 
+
+As also mentioned in the detailed description, in addition to per cycle change-driven ```eval()``` calls, the
+Testbench class also allows its subclasses to optionally define either or both ```pre_clock(...)``` and/or
+```post_clock(...)``` methods. If defined, these methods will be unconditionally called at the start and end
+of every clock cycle, with the current simulation clock cycle number passed in as an argument. 
+The only real difference between the two methods is the value of that clock cycle number relative to when
+actual simulation occurs (before or after any change-drive ```eval()``` calls). 
+
+A good potential use for the ```pre_clock(...)``` method is to conditionally activate some condition based on 
+clock cycle number. For example, if some software-driven external event is to occur at clock cycle "key_event", 
+pre_clock could be coded as:
+```cpp
+    void pre_clock(const uint32_t cycle_num) {
+        extern uint32_t key_event_clock;
+        
+        if (cycle_num == key_event_clock) {
+            ... do something ...
+        }
+    }
+```
+Similarly, the ```post_clock(...)``` method can be used to react to events within simulation at some clock
+number. Or, it can be used unconditionally at every clock to detect events within simulation. The use of 
+```pre_clock(...)``` and ```post_clock(...)``` methods is a good way to tie external software to a specific
+timeline in the simulation. Finally, we recommend that ```post_clock(...)``` be used to end 
+simulation based on simulator state as evaluation at that point is unconditional.
+We **do not** recommend exiting simulation from within an ```eval()``` call as 
+conditions in the simulator can change multiple times within a clock. For example, if error checking is done
+within ```eval()``` and exit is called, the error could be transient, there for one ```eval()``` and not there for the
+next. Calling for simulation exit is unconditional however and cannot be undone once called. 
 
 # Example: A Traffic Light Controller (TLC)
 
