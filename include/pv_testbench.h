@@ -139,35 +139,41 @@ public:
                     const_cast<RegisterBase*>(*it)->emit_register(writer->get_stream());
             changed_registers.clear();
 
-            // Now, based on changes casued by register updates, propagate until idle.
-            // int iter_count = 0;
-            if (opt_idle_limit > 0 && triggered.empty() && ++idle_cycles == opt_idle_limit) {
-                std::stringstream err_str;
-                err_str << "Simulation failed: idle cycle limit exceeded at clock cycle " << clock_num;
-                throw std::runtime_error(err_str.str());
-            }
-            while (!triggered.empty()) {
-                // We were non-idle, so set idles cycles to 0.
-                idle_cycles = 0;
-
-                // If iteration limit in a clock exceeded, fail simulator.
-                if (opt_iteration_limit > 0 && iteration_count++ == opt_iteration_limit) {
+            // Guard the following code with a try-catch block as it can throw exceptions.
+            try {
+                // Based on changes casued by register updates, propagate until idle.
+                if (opt_idle_limit > 0 && triggered.empty() && ++idle_cycles == opt_idle_limit) {
                     std::stringstream err_str;
-                    err_str << "Simulation failed: iteration limit exceeded at clock cycle " << clock_num;
+                    err_str << "Simulation failed: idle cycle limit exceeded at clock cycle " << clock_num;
                     throw std::runtime_error(err_str.str());
                 }
+                while (!triggered.empty()) {
+                    // We were non-idle, so set idles cycles to 0.
+                    idle_cycles = 0;
 
-                // Make a copy of run queue, then clear it.
-                std::set<const Module*> to_do_list(triggered);
-                triggered.clear();
+                    // If iteration limit in a clock exceeded, fail simulator.
+                    if (opt_iteration_limit > 0 && iteration_count++ == opt_iteration_limit) {
+                        std::stringstream err_str;
+                        err_str << "Simulation failed: iteration limit exceeded at clock cycle " << clock_num;
+                        throw std::runtime_error(err_str.str());
+                    }
 
-                // Iterate through to do list, updating each module
-                // TODO: consider putting the following loop in a try-catch block so that users don't.
-                // Then, create unique return codes for catches?
-                for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
-                    const_cast<Module*>(*it)->eval();
+                    // Make a copy of run queue, then clear it.
+                    std::set<const Module*> to_do_list(triggered);
+                    triggered.clear();
+
+                    // Iterate through to do list, updating each module
+                    for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
+                        const_cast<Module*>(*it)->eval();
+                }
+            } catch (const std::exception& e) {
+                std::stringstream sstr;
+                sstr << "Caught system error: " << e.what() << std::endl;
+                exit_string = sstr.str();
+                exit_code = -1;
+                exit_simulation = true;
             }
-
+            
             // Negative edge clock calls.
             if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
                 for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
@@ -177,8 +183,9 @@ public:
             }
 
             // End of clock: clear iteration limit.
-            // Run post-clock edge against the loaded test bench.
             iteration_count = 0;
+
+            // Run post-clock edge against the loaded test bench.
             this->post_clock(clock_num);
 
             // If end of simulation requested, exit loop.
