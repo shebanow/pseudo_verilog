@@ -158,7 +158,7 @@ struct tlc_tb : public Testbench {
         if (exit_code != 0) 
             fprintf(stderr, "Simulation error: %s\n", error_string().c_str());
         else
-            printf("TLC passed simulation after %u clocks.\n", get_clock());
+            printf("TLC passed simulation after %u clocks.\n", run_time());
     }
 
     // activity around clocks

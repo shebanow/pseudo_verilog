@@ -78,6 +78,7 @@ public:
         uint32_t idle_cycles = 0;
         uint32_t iteration_count = 0;
         bool had_stop_event = false;
+        uint32_t start_clock_num = clock_num;
         exit_simulation = false;
         exit_code = 0;
 
@@ -161,6 +162,8 @@ public:
                 triggered.clear();
 
                 // Iterate through to do list, updating each module
+                // TODO: consider putting the following loop in a try-catch block so that users don't.
+                // Then, create unique return codes for catches?
                 for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
                     const_cast<Module*>(*it)->eval();
             }
@@ -191,6 +194,10 @@ public:
             writer->vcd_dumpoff(this);
         }
 
+        // Save # of clocks simulation ran for.
+        run_time_delta = clock_num - start_clock_num;
+        cummulative_run_time_delta += run_time_delta;
+
         // All done, return exit code.
         return exit_code;
     }
@@ -211,6 +218,10 @@ public:
 
     // Return error string.
     const std::string& error_string() const { return exit_string; }
+
+    // Run time length getters.
+    const uint32_t run_time() const { return run_time_delta; }
+    const uint32_t cummulative_run_time() const { return cummulative_run_time_delta; }
 
     /*
      * Method to reset all modules to their initial state when instanced.
@@ -234,6 +245,10 @@ private:
 
     // Clock cycle counter.
     uint32_t clock_num;
+
+    // Runtime counters.
+    uint32_t run_time_delta;
+    uint32_t cummulative_run_time_delta;
 
     // Module "run queue" (list of triggered modules)
     std::set<const Module*> triggered;
@@ -337,6 +352,10 @@ private:
         exit_simulation = false;
         exit_code = 0;
         exit_string.clear();
+
+        // Init runtime counters.
+        run_time_delta = 0u;
+        cummulative_run_time_delta = 0u;
 
         // Reset initial clock cycle and VCD ID counters.
         clock_num = 0;

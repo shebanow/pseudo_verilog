@@ -390,7 +390,8 @@ private:
         if (init) {
             init_x = was_x = is_x = false;
             init_value = old_value = value = *init;
-            const_cast<Module*>(this->root_instance)->trigger_module(this->sensitized_module);
+            if (this->sensitized_module)
+                const_cast<Module*>(this->root_instance)->trigger_module(sensitized_module);
         } else
             init_x = was_x = is_x = true;
     }
