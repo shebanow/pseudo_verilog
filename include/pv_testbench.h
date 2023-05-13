@@ -18,6 +18,15 @@
  #define _PV_TESTBENCH_H_
 
 /*
+ * Simulation exit codes definions. See Testbench::simulate(...) below.
+ */
+
+#define SIM_NORMAL_EXIT 0
+#define SIM_CLOCK_LIMIT -1
+#define SIM_ERR_IDLE_LIMIT -2
+#define SIM_ERR_ITERATION_LIMIT -3
+
+/*
  * The Testbench class is used as a template for constructing testbenches to test modules in a model.
  * As a Testbench is a subclass of Module, testbenches have an eval() function as well, called upon changes to outputs of
  * the DUT it is testing. Also like Module, a Testbench can comtain other simulatable (i.e., clockable) components and 
@@ -80,7 +89,7 @@ public:
         bool had_stop_event = false;
         uint32_t start_clock_num = clock_num;
         exit_simulation = false;
-        exit_code = 0;
+        exit_code = SIM_NORMAL_EXIT;
 
         // If we are writing a VCD, generate header and definitions, initial state.
         // If dump start clock is positive non-zero, also execute a VCD dumpoff() command.
@@ -144,7 +153,8 @@ public:
                 // Based on changes casued by register updates, propagate until idle.
                 if (opt_idle_limit > 0 && triggered.empty() && ++idle_cycles == opt_idle_limit) {
                     std::stringstream err_str;
-                    err_str << "Simulation failed: idle cycle limit exceeded at clock cycle " << clock_num;
+                    err_str << "idle cycle limit exceeded at clock cycle " << clock_num;
+                    exit_code = SIM_ERR_IDLE_LIMIT;
                     throw std::runtime_error(err_str.str());
                 }
                 while (!triggered.empty()) {
@@ -154,7 +164,8 @@ public:
                     // If iteration limit in a clock exceeded, fail simulator.
                     if (opt_iteration_limit > 0 && iteration_count++ == opt_iteration_limit) {
                         std::stringstream err_str;
-                        err_str << "Simulation failed: iteration limit exceeded at clock cycle " << clock_num;
+                        err_str << "iteration limit exceeded at clock cycle " << clock_num;
+                        exit_code = SIM_ERR_ITERATION_LIMIT;
                         throw std::runtime_error(err_str.str());
                     }
 
@@ -168,9 +179,8 @@ public:
                 }
             } catch (const std::exception& e) {
                 std::stringstream sstr;
-                sstr << "Caught system error: " << e.what() << std::endl;
+                sstr << "Simulation error: " << e.what();
                 exit_string = sstr.str();
-                exit_code = -1;
                 exit_simulation = true;
             }
             
@@ -188,10 +198,15 @@ public:
             // Run post-clock edge against the loaded test bench.
             this->post_clock(clock_num);
 
-            // If end of simulation requested, exit loop.
-            if (exit_simulation)
-                break;
-        } while (opt_cycle_limit <= 0 || clock_num < opt_cycle_limit);
+            // If we will hit the clock limit, record exit condition.
+            if (opt_cycle_limit > 0 && clock_num == opt_cycle_limit) {
+                std::stringstream sstr;
+                exit_code = SIM_CLOCK_LIMIT;
+                sstr << "Simulation: clock cycle limit = " << clock_num;
+                exit_string = sstr.str();
+                exit_simulation = true;
+            }
+        } while (!exit_simulation);
 
         // If had a VCD stop clock and it triggered, need to add final dump of 'x values.
         if (writer != NULL && writer->is_open() && had_stop_event) {
