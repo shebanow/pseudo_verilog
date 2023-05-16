@@ -118,6 +118,9 @@ public:
             // Increment clock number to the next numbered cycle.
             clock_num++;
 
+            // Mark all modules as having not had an eval() call yet.
+            mark_no_eval(this);
+
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
@@ -174,8 +177,12 @@ public:
                     triggered.clear();
 
                     // Iterate through to do list, updating each module
-                    for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++)
+                    for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++) {
+                        if ((*it)->get_eval_has_been_called())
+                            restore_register_replica_state(*it);
+                        const_cast<Module*>(*it)->set_eval_has_been_called(true);
                         const_cast<Module*>(*it)->eval();
+                    }
                 }
             } catch (const std::exception& e) {
                 std::stringstream sstr;
@@ -295,6 +302,19 @@ private:
         trigger_module(m);
         for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
             trigger_all_modules(*it);
+    }
+
+    // Method to mark all modules has not haveing had eval() called yet.
+    void mark_no_eval(const Module* m) {
+        const_cast<Module*>(m)->set_eval_has_been_called(false);
+        for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+            mark_no_eval(*it);
+    }
+
+    // Method to restore a module's register instances back to their replica state.
+    void restore_register_replica_state(const Module* m) {
+        for (std::set<const RegisterBase*>::const_iterator it = m->r_begin(); it != m->r_end(); it++)
+            const_cast<RegisterBase*>(*it)->restore_replica();
     }
 
     // Method to reset a module and all it instances to its instance state.

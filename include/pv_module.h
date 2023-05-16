@@ -69,6 +69,10 @@ public:
     std::set<const WireBase*>::const_iterator w_end()   const { return wire_list.cend(); }
     std::set<const RegisterBase*>::const_iterator r_end()   const { return register_list.cend(); }
 
+    // getter/setter on eval_has_been_called flag.
+    inline const bool get_eval_has_been_called() const { return eval_has_been_called; }
+    inline void set_eval_has_been_called(const bool flag) { eval_has_been_called = flag; }
+
 protected:
     // Friend classes
     friend class WireBase;
@@ -112,11 +116,15 @@ private:
     std::set<const WireBase*> wire_list;
     std::set<const RegisterBase*> register_list;
 
+    // Flag to keep track if module has been evaluated this clock cycle or not.
+    bool eval_has_been_called;
+
     // Keeping track of assigned VCD ID counts.
     virtual uint32_t& vcd_id_count() { static uint32_t tmp = 0; return tmp; }
 
     // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
     void constructor_common() {
+        eval_has_been_called = false;
         if (parent_module) {
             root_instance = parent_module->root_instance;
             const_cast<Module*>(parent_module)->add_module_instance(this);

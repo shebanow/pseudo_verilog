@@ -125,6 +125,9 @@ private:
     // Virtual method to reset register to the state it had when instanced. Actual implementation in Register<T>.
     virtual void reset_to_instance_state() {}
 
+    // Restore replica: copy replica value back to source. Actual implementation in Register<T>.
+    virtual void restore_replica() {}
+
     // Common constuctor code.
     void constructor_common() {
         // Parent cannot be NULL.
@@ -284,6 +287,12 @@ private:
     void reset() {
         source = replica = init_state;
         source_x = replica_x = init_x;
+    }
+
+    // Restore replica: copy replica value back to source.
+    inline void restore_replica() {
+        source = replica;
+        source_x = replica_x;
     }
 
     // Implement a positive clock edge on this register.
