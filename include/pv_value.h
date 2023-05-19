@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
- #ifndef _PV_VALUE2STRING_H_
- #define _PV_VALUE2STRING_H_
+ #ifndef _PV_VALUE_H_
+ #define _PV_VALUE_H_
 
 /*
- * The value2string_t template class is used to convert a data value to a Verilog VCD-printable string.
+ * The vcd::value2string_t template class is used to convert a data value to a Verilog VCD-printable string.
  * Note: users can extend the class through other partial specializations of the template class.
  * Typically required when generating value strings of custom data types.
- * The VCD namespace is used for the value2string_t class as usage is related to dumping VCD files.
+ * The VCD namespace is used for the vcd::value2string_t class as this class's usage is related to dumping VCD files.
  */
 
 namespace vcd {
@@ -125,4 +125,4 @@ namespace vcd {
 
 } // end namespace vcd
 
- #endif //  _PV_VALUE2STRING_H_
+ #endif //  _PV_VALUE_H_
