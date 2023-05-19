@@ -198,6 +198,8 @@ public:
                 changed_wires.clear();
                 vcd_generate_falling_edge(clock_num);
             }
+            for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
+                const_cast<WireBase *>(*it)->neg_edge_update();
 
             // End of clock: clear iteration limit.
             iteration_count = 0;

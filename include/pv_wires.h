@@ -109,10 +109,13 @@ protected:
     Module *sensitized_module;
 
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
-    virtual void assign_x() {}
+    virtual void assign_x() = 0;
 
     // Virtual method to reset wire to the state it had when instanced. Implemented in WireTemplateBase<T>.
-    virtual void reset_to_instance_state() {}
+    virtual void reset_to_instance_state() = 0;
+
+    // Virtual method for mandatory negative clock edge update. Implemented in WireTemplateBase<T>.
+    virtual void neg_edge_update() = 0;
 
     // VCD related. The virtual methods below can't be implemented in the base class as the data type
     // is not known in the base class. However, we do want methods using the Wire-type classes the ability
@@ -195,6 +198,7 @@ public:
     // Wire value getter/setter.
     inline operator T() const { return value; }
     WireTemplateBase& operator=(const T& v) { common_assignment(false, v); return *this; }
+    template <typename U> WireTemplateBase& operator=(const U& v) { common_assignment(false, (T) v); return *this; }
 
     // General wire->wire assignment (same or different source type).
     WireTemplateBase& operator=(const WireTemplateBase& wv)
@@ -329,8 +333,12 @@ private:
     // VCD updates on negative edge of clock: if value has changed print the change.
     // Should NOT be called if vcd_stream is NULL (i.e., we are not dumping a VCD).
     void emit_vcd_neg_edge_update(std::ostream* vcd_stream) {
-        if (is_x ? (is_x ^ was_x) : (was_x || value != old_value))
+        if (is_x ? !was_x : (was_x || value != old_value))
             *vcd_stream << (is_x ? v2s.undefined() : (v2s)(value)) << (width > 1 ? " " : "") << vcd_id_str << std::endl;
+    }
+
+    // Mandatory negedge update call.
+    inline void neg_edge_update() {
         was_x = is_x;
         old_value = value;
     }
@@ -414,8 +422,9 @@ public:
 
     // Call superclass for assignment operator.
     inline Wire& operator=(const T& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
-    inline Wire& operator=(const Wire& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
-    template <typename U> inline Wire& operator=(const Wire<U>& value) { return (Wire&) WireTemplateBase<T>::operator=(value); }
+    template <typename U> inline Wire& operator=(const U& value) { return (Wire&) WireTemplateBase<T>::operator=((T) value); }
+    inline Wire& operator=(const WireTemplateBase<T>& wv) { return (Wire&) WireTemplateBase<T>::operator=(wv); }
+    template <typename U> inline Wire& operator=(const WireTemplateBase<U>& wv) { return (Wire&) WireTemplateBase<T>::operator=(wv); }
 
 private:
     // Common constructor for all four variants.
@@ -442,6 +451,9 @@ public:
 
     // Call superclass for assignment operator.
     inline QWire& operator=(const T& value) { return (QWire&) WireTemplateBase<T>::operator=(value); }
+    template <typename U> inline QWire& operator=(const U& value) { return (QWire&) WireTemplateBase<T>::operator=((T) value); }
+    inline QWire& operator=(const WireTemplateBase<T>& wv) { return (QWire&) WireTemplateBase<T>::operator=(wv); }
+    template <typename U> inline QWire& operator=(const WireTemplateBase<U>& wv) { return (QWire&) WireTemplateBase<T>::operator=(wv); }
 
 private:
     // Common constructor for all four variants.
@@ -468,6 +480,9 @@ public:
 
     // Call superclass for assignment operator.
     inline Input& operator=(const T& value) { return (Input&) WireTemplateBase<T>::operator=(value); }
+    template <typename U> inline Input& operator=(const U& value) { return (Input&) WireTemplateBase<T>::operator=((T) value); }
+    inline Input& operator=(const WireTemplateBase<T>& wv) { return (Input&) WireTemplateBase<T>::operator=(wv); }
+    template <typename U> inline Input& operator=(const WireTemplateBase<U>& wv) { return (Input&) WireTemplateBase<T>::operator=(wv); }
 
 private:
     // Common constructor for all four variants.
@@ -496,6 +511,9 @@ public:
 
     // Call superclass for assignment operator.
     inline Output& operator=(const T& value) { return (Output&) WireTemplateBase<T>::operator=(value); }
+    template <typename U> inline Output& operator=(const U& value) { return (Output&) WireTemplateBase<T>::operator=((T) value); }
+    inline Output& operator=(const WireTemplateBase<T>& wv) { return (Output&) WireTemplateBase<T>::operator=(wv); }
+    template <typename U> inline Output& operator=(const WireTemplateBase<U>& wv) { return (Output&) WireTemplateBase<T>::operator=(wv); }
 
 private:
     // Common constructor for all four variants.
