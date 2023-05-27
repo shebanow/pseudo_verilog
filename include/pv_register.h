@@ -100,6 +100,10 @@ public:
     virtual void assign_x() {}
     virtual void reset_to_x() {}
 
+    // Set up a trace or tear it down.
+    inline void trace(std::ostream* ts) { trace_stream = ts; }
+    inline void untrace() { trace_stream = NULL; }
+
 protected:
     // Parent modules and name.
     const Module* parent_module;
@@ -116,6 +120,9 @@ protected:
     virtual void emit_vcd_dumpon(std::ostream* vcd_stream) const = 0;
     virtual void emit_vcd_dumpoff(std::ostream* vcd_stream) const = 0;
     virtual void emit_register(std::ostream* vcd_stream) const = 0;
+
+    // Optional tracing.
+    std::ostream* trace_stream;
 
 private:
     // Friend classes.
@@ -141,6 +148,9 @@ private:
         std::stringstream ss;
         ss << "@" << std::hex << const_cast<Module*>(root_instance)->vcd_id_count()++;
         vcd_id_str = ss.str();
+
+        // Initialize trace stream off.
+        trace_stream = NULL;
     }
 };
 
@@ -297,10 +307,24 @@ private:
 
     // Implement a positive clock edge on this register.
     inline void pos_edge() {
+        bool change = false;
+
+        // Check to see if a change in value
         if (replica_x ? !source_x : (source_x || replica != source)) {
             const_cast<Module*>(root_instance)->trigger_module(parent_module);
             const_cast<Module*>(root_instance)->add_changed_register(this);
+            change = true;
         }
+
+        // If tracing...
+        if (trace_stream && change) {
+            std::stringstream ss_replica, ss_source;
+            if (replica_x) ss_replica << "X"; else ss_replica << replica;
+            if (source_x) ss_source << "X"; else ss_source << source;
+            *trace_stream << "$$$ Register \"" << instanceName() << "\": " << ss_source.str() << " -> " << ss_replica.str() << std::endl;
+        }
+
+        // Now do the assignment
         replica = source;
         replica_x = source_x;
     }
