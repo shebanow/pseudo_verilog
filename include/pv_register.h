@@ -101,7 +101,7 @@ public:
     virtual void reset_to_x() {}
 
     // Set up a trace or tear it down.
-    inline void trace(std::ostream* ts) { trace_stream = ts; }
+    inline void trace(std::ostream& ts = std::cout) { trace_stream = &ts; }
     inline void untrace() { trace_stream = NULL; }
 
 protected:

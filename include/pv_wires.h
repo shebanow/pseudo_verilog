@@ -96,7 +96,7 @@ public:
     virtual const int get_width() const = 0;
 
     // Set up a trace or tear it down.
-    inline void trace(std::ostream* ts) { trace_stream = ts; }
+    inline void trace(std::ostream& ts = std::cout) { trace_stream = &ts; }
     inline void untrace() { trace_stream = NULL; }
 
 protected:
@@ -113,7 +113,7 @@ protected:
     Module *sensitized_module;
 
     // Optional tracing.
-    std::ostream* trace_stream;
+    std::ostream *trace_stream;
 
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
     virtual void assign_x() = 0;
