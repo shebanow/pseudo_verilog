@@ -57,6 +57,9 @@ public:
         }
     }
 
+    // Virtual method to get current simulation clock #. Only really implemented in Testbench.
+    virtual const uint32_t get_clock() const { return 0u; }
+
     // Required implementation: called to update the module upon change in its sensitivity lists (wires or registers). 
     virtual void eval() = 0;
 
