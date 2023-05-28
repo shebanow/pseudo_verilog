@@ -195,11 +195,11 @@ public:
             if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
                 for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
                     const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
-                changed_wires.clear();
                 vcd_generate_falling_edge(clock_num);
             }
             for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
                 const_cast<WireBase *>(*it)->neg_edge_update();
+            changed_wires.clear();
 
             // End of clock: clear iteration limit.
             iteration_count = 0;
