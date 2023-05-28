@@ -115,6 +115,10 @@ protected:
     // Optional tracing.
     std::ostream *trace_stream;
 
+    // Disable direct assignment.
+    template <typename T> WireBase& operator=(const T& wb) = delete;
+    virtual WireBase& operator=(const WireBase& wb) = delete;
+
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
     virtual void assign_x() = 0;
 
@@ -200,6 +204,7 @@ public:
     // Disable default and copy constructors.
     WireTemplateBase() = delete;
     WireTemplateBase(const WireTemplateBase& w) = delete;
+    template <typename U> WireTemplateBase(const WireTemplateBase<U>& wtb) = delete;
 
     // Width setter/getter.
     void set_width(const int wv) { width = wv; v2s.set_width(width); }
@@ -375,7 +380,7 @@ private:
             if (trace_stream) {
                 std::stringstream ss;
                 if (was_x) ss << "X"; else ss << old_value;
-                *trace_stream << ">>> Wire \"" << instanceName() << "\" operator" << info << "(): " <<
+                *trace_stream << ">>> Wire \"" << instanceName() << "\" [" << this->root_instance->get_clock() << "] operator" << info << ": " <<
                     ss.str() << " -> " << "'X'" << (change ? " (CHG)" : " (SAME)") << std::endl;
             }
 
@@ -410,7 +415,7 @@ private:
             if (trace_stream) {
                 std::stringstream ss;
                 if (was_x) ss << "X"; else ss << old_value;
-                *trace_stream << ">>> Wire \"" << instanceName() << "\" operator" << info << ": " <<
+                *trace_stream << ">>> Wire \"" << instanceName() << "\" [" << this->root_instance->get_clock() << "] operator" << info << ": " <<
                     ss.str() << " -> " << v << (change ? " (CHG)" : " (SAME)") << std::endl;
             }
 
@@ -488,9 +493,8 @@ public:
 
 private:
     // Common constructor for all four variants.
-    void constructor_common(const Module* p) {
-        if (!p) throw std::invalid_argument("QWire must be declared inside a module");
-    }
+    void constructor_common(const Module* p)
+        { if (!p) throw std::invalid_argument("QWire must be declared inside a module"); }
 };
 
 /*
