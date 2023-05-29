@@ -200,6 +200,7 @@ public:
             for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
                 const_cast<WireBase *>(*it)->neg_edge_update();
             changed_wires.clear();
+            dump_trace();
 
             // End of clock: clear iteration limit.
             iteration_count = 0;
@@ -290,6 +291,87 @@ private:
 
     // Counter tio record how many VCDs have been issued.
     uint32_t vcd_id_counter;
+
+    /*
+     * Calls related to tracing
+     */
+
+    // data structures
+    pv::ValueChangeRecordSizes value_change_sizes;
+    std::map<const std::string, pv::ValueChangeRecord> value_change_map;
+
+    // Establish a trace on some instance name with bit width.
+    void trace_string_size(const std::string iname, const int width) {
+        if (value_change_sizes.max_instance_name_len < iname.length())
+            value_change_sizes.max_instance_name_len = iname.length();
+        if (value_change_sizes.max_width < width)
+            value_change_sizes.max_width = width;
+    }
+
+    // getter to return a value change record (VCR) or init one if not found.
+    const pv::ValueChangeRecord get_trace_change(const std::string iname) {
+        pv::ValueChangeRecord vcr;
+        std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.find(iname);
+        if (it == value_change_map.end()) {
+            vcr.type = 'U';
+            vcr.start_value = "";
+            vcr.end_value = "";
+            vcr.is_changed = false;
+            vcr.NST = 0;
+            vcr.NTR = 0;
+            return vcr;
+        }
+        return (*it).second;
+    }
+
+    // setter to install a VCR to some instance name (iname). 
+    inline void set_trace_change(const std::string iname, const pv::ValueChangeRecord& vcr)
+        { value_change_map[iname] = vcr; }
+
+    // method to dump a set of trace records
+    void dump_trace() {
+        // If there is nothing to do...
+        if (value_change_map.size() == 0) 
+            return;
+
+        // Determine if anything changed.
+        bool any_changes = false;
+        for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); it != value_change_map.end(); it++) {
+            if (it->second.is_changed) {
+                any_changes = true;
+                break;
+            }
+        }
+
+        // Print header
+        if (any_changes) {
+            int ln_size = value_change_sizes.max_instance_name_len + 2 * std::max(value_change_sizes.max_width+1, 5) + 12;
+            int buf_size = ln_size + 5;
+            std::string divider(ln_size, '-');
+
+            char *buf = new char[buf_size];
+            std::cout << ">>> " << divider << std::endl;
+            std::cout << ">>> Clock " << clock_num << std::endl;
+            snprintf(buf, buf_size, ">>> T %-*s NTR NST %*s %*s",
+                value_change_sizes.max_instance_name_len, "Name",
+                std::max(value_change_sizes.max_width+1, 5), "Start",
+                std::max(value_change_sizes.max_width+1, 5), "End");
+            std::cout << buf << std::endl;
+            std::cout << ">>> " << divider << std::endl;
+            for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); it != value_change_map.end(); it++) {
+                if (!it->second.is_changed)
+                    continue;
+                snprintf(buf, buf_size, ">>> %c %-*s %3d %3d %*s %*s",
+                    it->second.type, value_change_sizes.max_instance_name_len, it->first.c_str(), it->second.NTR, it->second.NST,
+                    std::max(value_change_sizes.max_width+1, 5), it->second.start_value.c_str(),
+                    std::max(value_change_sizes.max_width+1, 5), it->second.end_value.c_str());
+                std::cout << buf << std::endl;
+            }
+            std::cout << ">>> " << divider << std::endl;
+            delete[] buf;
+        }
+        value_change_map.clear();
+    }
 
     /* 
      * vcd_id_count(): return current count of VCD IDs assigned.
@@ -404,6 +486,10 @@ private:
         // Reset initial clock cycle and VCD ID counters.
         clock_num = 0;
         vcd_id_counter = 0;
+
+        // Init value change trace string size structure.
+        value_change_sizes.max_instance_name_len = 0;
+        value_change_sizes.max_width = 0;
     }
 };
 

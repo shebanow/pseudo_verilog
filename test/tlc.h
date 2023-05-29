@@ -102,6 +102,7 @@ public:
     Output<color, 2> instance(north_south);
 
 private:
+    friend struct tlc_tb;
     Register<color, 2> instance(ew_state);
     Register<color, 2> instance(ns_state);
     Register<uint32_t, 8> instance(timer);

@@ -95,10 +95,6 @@ public:
     // Required getter for width of wire.
     virtual const int get_width() const = 0;
 
-    // Set up a trace or tear it down.
-    inline void trace(std::ostream& ts = std::cout) { trace_stream = &ts; }
-    inline void untrace() { trace_stream = NULL; }
-
 protected:
     // Friend classes.
     friend class Testbench;
@@ -113,11 +109,48 @@ protected:
     Module *sensitized_module;
 
     // Optional tracing.
-    std::ostream *trace_stream;
+    bool tracing;
+
+    // Wire class type and state; declared here so WireTemplateBase can use
+    enum class WireType {
+        unknown = 0,
+        wire,
+        qwire,
+        input,
+        output
+    } wire_type;
 
     // Disable direct assignment.
     template <typename T> WireBase& operator=(const T& wb) = delete;
     virtual WireBase& operator=(const WireBase& wb) = delete;
+
+    // Convert wire type to a string
+    const std::string type2string() const {
+        std::string str;
+        switch (wire_type) {
+        case WireType::unknown: str = "<UNK>"; break;
+        case WireType::wire:    str = "Wire"; break;
+        case WireType::qwire:   str = "QWire"; break;
+        case WireType::input:   str = "Input"; break;
+        case WireType::output:  str = "Output"; break;
+        default:                str = "<UNK>"; break;
+        }
+        return str;
+    }
+
+    // Convert wire type to a character code.
+    const char type2char() const {
+        char ch;
+        switch (wire_type) {
+        case WireType::unknown: ch = 'U'; break;
+        case WireType::wire:    ch = 'W'; break;
+        case WireType::qwire:   ch = 'Q'; break;
+        case WireType::input:   ch = 'I'; break;
+        case WireType::output:  ch = 'O'; break;
+        default:                ch = 'U'; break;
+        }
+        return ch;
+    }
 
     // Virtual method to assign an 'x' state to a wire. Implemented in WireTemplateBase<T>.
     virtual void assign_x() = 0;
@@ -149,13 +182,16 @@ private:
         const_cast<Module*>(parent_module)->add_wire_instance(this);
         sensitized_module = NULL;
 
+        // Set unknown (in here) wire type.
+        wire_type = WireType::unknown;
+
         // Initialize VCD ID.
         std::stringstream ss;
         ss << "@" << std::hex << const_cast<Module*>(root_instance)->vcd_id_count()++;
         vcd_id_str = ss.str();
 
         // Initialize trace stream off.
-        trace_stream = NULL;
+        tracing = false;
     }
 };
 
@@ -196,8 +232,10 @@ template <typename T>
 class WireTemplateBase : public WireBase {
 protected:
     // Constructor/Destructor.
-    WireTemplateBase(const Module* p, const char* str, const int W, const T* init) : WireBase(p, str), v2s(def_printer) { constructor_common(W, init); }
-    WireTemplateBase(const Module* p, const std::string& nm, const int W, const T* init) : WireBase(p, nm), v2s(def_printer) { constructor_common(W, init); }
+    WireTemplateBase(const Module* p, const char* str, const int W, const T* init, const WireBase::WireType type) : WireBase(p, str), v2s(def_printer)
+        { constructor_common(W, init, type); }
+    WireTemplateBase(const Module* p, const std::string& nm, const int W, const T* init, const WireBase::WireType type) : WireBase(p, nm), v2s(def_printer)
+        { constructor_common(W, init, type); }
     virtual ~WireTemplateBase() {}
 
 public:
@@ -299,6 +337,14 @@ public:
     inline WireTemplateBase  operator--(int)
 		{ WireTemplateBase tmp = *this; T new_v = value - 1; common_assignment(is_x, new_v, "++(int)"); return tmp; }
 
+    // Set up a trace or tear it down.
+    inline void enable_trace(const bool en) {
+        tracing = en;
+        if (en) const_cast<Module*>(root_instance)->trace_string_size(instanceName(), width);
+    }
+    inline void trace() { enable_trace(true); }
+    inline void untrace() { enable_trace(false); }
+
 protected:
     // Width parameter.
     int width;
@@ -377,11 +423,21 @@ private:
                 const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
 
             // If tracing...
-            if (trace_stream) {
-                std::stringstream ss;
-                if (was_x) ss << "X"; else ss << old_value;
-                *trace_stream << ">>> Wire \"" << instanceName() << "\" [" << this->root_instance->get_clock() << "] operator" << info << ": " <<
-                    ss.str() << " -> " << "'X'" << (change ? " (CHG)" : " (SAME)") << std::endl;
+            if (tracing) {
+                pv::ValueChangeRecord vcr = const_cast<Module*>(root_instance)->get_trace_change(instanceName());
+                if (vcr.type == 'U') {
+                    vcr.type = type2char();
+                    vcr.start_value = was_x ? v2s.undefined() : (v2s)(old_value);
+                }
+                vcr.end_value = v2s.undefined();
+                if (change) {
+                    vcr.is_changed = true;
+                    vcr.NTR++;
+                } else {
+                    vcr.is_changed = false;
+                    vcr.NST++;
+                }
+                const_cast<Module*>(root_instance)->set_trace_change(instanceName(), vcr);
             }
 
             // Wire is now X.
@@ -412,11 +468,21 @@ private:
                 const_cast<Module*>(root_instance)->trigger_module(sensitized_module);
 
             // If tracing...
-            if (trace_stream) {
-                std::stringstream ss;
-                if (was_x) ss << "X"; else ss << old_value;
-                *trace_stream << ">>> Wire \"" << instanceName() << "\" [" << this->root_instance->get_clock() << "] operator" << info << ": " <<
-                    ss.str() << " -> " << v << (change ? " (CHG)" : " (SAME)") << std::endl;
+            if (tracing) {
+                pv::ValueChangeRecord vcr = const_cast<Module*>(root_instance)->get_trace_change(instanceName());
+                if (vcr.type == 'U') {
+                    vcr.type = type2char();
+                    vcr.start_value = was_x ? v2s.undefined() : (v2s)(old_value);
+                }
+                vcr.end_value = (v2s)(v);
+                if (change) {
+                    vcr.is_changed = true;
+                    vcr.NTR++;
+                } else {
+                    vcr.is_changed = false;
+                    vcr.NST++;
+                }
+                const_cast<Module*>(root_instance)->set_trace_change(instanceName(), vcr);
             }
 
             // Clear any X state and save new value.
@@ -428,9 +494,10 @@ private:
     // Common constructor code.
     // Set default VCD string printer and initialize wire to X state.
     // If initializer is provided, use it; otherwise, set state to 'X'.
-    void constructor_common(const int W, const T* init) {
+    void constructor_common(const int W, const T* init, const WireBase::WireType type) {
         width = (W > 0) ? W : vcd::bitwidth<T>();
         v2s.set_width(width);
+        this->wire_type = type;
         if (init) {
             init_x = was_x = is_x = false;
             init_value = old_value = value = *init;
@@ -450,10 +517,10 @@ template <typename T, int W = -1>
 class Wire final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Wire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    Wire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
-    Wire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
+    Wire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL, WireBase::WireType::wire) { constructor_common(p); }
+    Wire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init, WireBase::WireType::wire) { constructor_common(p); }
+    Wire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL, WireBase::WireType::wire) { constructor_common(p); }
+    Wire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init, WireBase::WireType::wire) { constructor_common(p); }
     virtual ~Wire() {}
 
     // Call superclass for assignment operator.
@@ -479,10 +546,10 @@ template <typename T, int W = -1>
 class QWire final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
-    QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
+    QWire(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL, WireBase::WireType::qwire) { constructor_common(p); }
+    QWire(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init, WireBase::WireType::qwire) { constructor_common(p); }
+    QWire(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL, WireBase::WireType::qwire) { constructor_common(p); }
+    QWire(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init, WireBase::WireType::qwire) { constructor_common(p); }
     virtual ~QWire() {}
 
     // Call superclass for assignment operator.
@@ -507,10 +574,10 @@ template <typename T, int W = -1>
 class Input final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Input(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
-    Input(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
+    Input(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL, WireBase::WireType::input) { constructor_common(p); }
+    Input(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init, WireBase::WireType::input) { constructor_common(p); }
+    Input(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL, WireBase::WireType::input) { constructor_common(p); }
+    Input(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init, WireBase::WireType::input) { constructor_common(p); }
     virtual ~Input() {}
 
     // Call superclass for assignment operator.
@@ -538,10 +605,10 @@ template <typename T, int W = -1>
 class Output final : public WireTemplateBase<T> {
 public:
     // Constructors/Destructor.
-    Output(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL) { constructor_common(p); }
-    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init) { constructor_common(p); }
-    Output(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL) { constructor_common(p); }
-    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init) { constructor_common(p); }
+    Output(const Module* p, const char* str) : WireTemplateBase<T>(p, str, W, NULL, WireBase::WireType::output) { constructor_common(p); }
+    Output(const Module* p, const char* str, const T& init) : WireTemplateBase<T>(p, str, W, &init, WireBase::WireType::output) { constructor_common(p); }
+    Output(const Module* p, const std::string& nm) : WireTemplateBase<T>(p, nm, W, NULL, WireBase::WireType::output) { constructor_common(p); }
+    Output(const Module* p, const std::string& nm, const T& init) : WireTemplateBase<T>(p, nm, W, &init, WireBase::WireType::output) { constructor_common(p); }
     virtual ~Output() {}
 
     // Call superclass for assignment operator.

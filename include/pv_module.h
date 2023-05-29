@@ -106,6 +106,11 @@ protected:
     // Virtual function overloaded in Testbench to trigger a module.
     virtual void trigger_module(const Module* theModule) {}
 
+    // For value change tracing. Actual implementation in Testbench.
+    virtual void trace_string_size(const std::string iname, const int width) {}
+    virtual const pv::ValueChangeRecord get_trace_change(const std::string iname) { pv::ValueChangeRecord dummy; return dummy; }
+    virtual void set_trace_change(const std::string iname, const pv::ValueChangeRecord& vcr) {}
+
 private:
     // Module parent; NULL => top level module. Keep track of root of Module instance tree.
     const Module* parent_module;

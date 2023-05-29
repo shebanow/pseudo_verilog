@@ -100,10 +100,6 @@ public:
     virtual void assign_x() {}
     virtual void reset_to_x() {}
 
-    // Set up a trace or tear it down.
-    inline void trace(std::ostream& ts = std::cout) { trace_stream = &ts; }
-    inline void untrace() { trace_stream = NULL; }
-
 protected:
     // Parent modules and name.
     const Module* parent_module;
@@ -122,7 +118,7 @@ protected:
     virtual void emit_register(std::ostream* vcd_stream) const = 0;
 
     // Optional tracing.
-    std::ostream* trace_stream;
+    bool tracing;
 
 private:
     // Friend classes.
@@ -150,7 +146,7 @@ private:
         vcd_id_str = ss.str();
 
         // Initialize trace stream off.
-        trace_stream = NULL;
+        tracing = false;
     }
 };
 
@@ -272,6 +268,14 @@ public:
     Register& operator++(int) = delete;
     Register& operator--(int) = delete;
 
+    // Set up a trace or tear it down.
+    inline void enable_trace(const bool en) {
+        tracing = en;
+        if (en) const_cast<Module*>(root_instance)->trace_string_size(instanceName(), width);
+    }
+    inline void trace() { enable_trace(true); }
+    inline void untrace() { enable_trace(false); }
+
 private:
     // Friend classes.
     friend class Testbench; 
@@ -317,11 +321,16 @@ private:
         }
 
         // If tracing...
-        if (trace_stream && change) {
-            std::stringstream ss_replica, ss_source;
-            if (replica_x) ss_replica << "X"; else ss_replica << replica;
-            if (source_x) ss_source << "X"; else ss_source << source;
-            *trace_stream << "$$$ Register \"" << instanceName() << "\": " << ss_source.str() << " -> " << ss_replica.str() << std::endl;
+        if (tracing && change) {
+            pv::ValueChangeRecord vcr = const_cast<Module*>(root_instance)->get_trace_change(instanceName());
+            if (vcr.type == 'U') {
+                vcr.type = 'R';
+                vcr.start_value = replica_x ? v2s.undefined() : (v2s)(replica);
+            }
+            vcr.end_value = source_x ? v2s.undefined() : (v2s)(source);
+            vcr.is_changed = true;
+            vcr.NTR++;
+            const_cast<Module*>(root_instance)->set_trace_change(instanceName(), vcr);
         }
 
         // Now do the assignment

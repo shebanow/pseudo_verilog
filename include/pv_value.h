@@ -18,6 +18,29 @@
  #define _PV_VALUE_H_
 
 /*
+ * Value change record for tracing.
+ */
+
+namespace pv {
+    // This record records information about traced entities.
+    struct ValueChangeRecord {
+        char type;                              // variable type (U<nknown>, R<egister>, I<nput>, O<utput>, W<ire>, Q<Wire>)
+        std::string start_value;                // value type had at start of clock
+        std::string end_value;                  // value type had at end of clock
+        bool is_changed;                        // did value change
+        int NST;                                // # of times written but unchanged (static) this clock
+        int NTR;                                // # of times changed (transitions) this clock
+    };
+
+    // This data structure records the maximum length of strings needed to represent value change records.
+    // Two fields: the max length of any instance name ever traced and the max bit width of any such instance.
+    struct ValueChangeRecordSizes {   
+        int max_instance_name_len;              // max number of characters in any instance name
+        int max_width;                          // maximum width
+    };
+} // end namespace pv
+
+/*
  * The vcd::value2string_t template class is used to convert a data value to a Verilog VCD-printable string.
  * Note: users can extend the class through other partial specializations of the template class.
  * Typically required when generating value strings of custom data types.
