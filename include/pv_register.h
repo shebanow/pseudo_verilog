@@ -296,14 +296,36 @@ private:
     bool replica_x;
     bool init_x;
 
-    // Reset register to state it had when instanced.
-    // Note that this method does NOT trigger eval().
-    void reset() {
+    // Method to reset register to the state it had when instanced.
+    void reset_to_instance_state() {
+        // Detect changes to state.
+        bool change = false;
+        if ((replica_x && !init_x) || (!replica_x && init_x) || (!replica_x && !init_x && replica != init_state)) {
+            change = true;
+            const_cast<Module*>(root_instance)->trigger_module(parent_module);
+            const_cast<Module*>(root_instance)->add_changed_register(this);
+        }
+
+        // If tracing, this is a write
+        if (tracing && change) {
+            pv::ValueChangeRecord vcr = const_cast<Module*>(root_instance)->get_trace_change(instanceName());
+            if (vcr.type == 'U') {
+                vcr.type = 'R';
+                vcr.start_value = replica_x ? v2s.undefined() : (v2s)(replica);
+            }
+            vcr.end_value = init_x ? v2s.undefined() : (v2s)(init_state);
+            vcr.is_changed = true;
+            vcr.NTR++;
+            const_cast<Module*>(root_instance)->set_trace_change(instanceName(), vcr);
+        }
+
+        // Now restore state.
         source = replica = init_state;
         source_x = replica_x = init_x;
     }
 
     // Restore replica: copy replica value back to source.
+    // This is considered an "undo" so is not considered a change (=> no tracing nor VCD update).
     inline void restore_replica() {
         source = replica;
         source_x = replica_x;
