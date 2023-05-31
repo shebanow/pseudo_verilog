@@ -372,11 +372,8 @@ private:
 
     // Reset state of wire back to the state it had when it was instanced.
     // This is considered a change and does potentially cause tracing and a VCD update.
-    void reset_to_instance_state() {
-        common_assignment(init_x, init_value, "<reset>");
-        was_x = init_x;
-        old_value = init_value;
-    }
+    inline void reset_to_instance_state()
+        { common_assignment(init_x, init_value, "<reset>"); }
 
     // VCD string printer (default)
     vcd::value2string_t<T> def_printer = { value }; 

@@ -320,8 +320,8 @@ private:
         }
 
         // Now restore state.
-        source = replica = init_state;
-        source_x = replica_x = init_x;
+        source = init_state;
+        source_x = init_x;
     }
 
     // Restore replica: copy replica value back to source.
