@@ -72,9 +72,17 @@ public:
     std::set<const WireBase*>::const_iterator w_end()   const { return wire_list.cend(); }
     std::set<const RegisterBase*>::const_iterator r_end()   const { return register_list.cend(); }
 
-    // getter/setter on eval_has_been_called flag.
+    // Getter/setter on eval_has_been_called flag.
     inline const bool get_eval_has_been_called() const { return eval_has_been_called; }
     inline void set_eval_has_been_called(const bool flag) { eval_has_been_called = flag; }
+
+    // Method to force evaluation (eval()) this clock or next on yourself.
+    inline void force_eval() { const_cast<Module*>(root_instance)->trigger_module(this); }
+    void force_eval_next_clock() { needs_evaluation = true; }
+
+    // Getters/setters on needs_evaluation.
+    inline bool get_needs_evaluation() const { return needs_evaluation; }
+    inline void set_needs_evaluation(const bool flag) { needs_evaluation = flag; }
 
 protected:
     // Friend classes
@@ -116,6 +124,9 @@ private:
     const Module* parent_module;
     const Module* root_instance;
 
+    // Marker to indicate module needs evaluation
+    bool needs_evaluation;
+
     // Module instance name.
     const std::string instance_name;
 
@@ -133,6 +144,7 @@ private:
     // Constructor common code. Records root of module instance tree and adds this instance to parent if it exists.
     void constructor_common() {
         eval_has_been_called = false;
+        needs_evaluation = false;
         if (parent_module) {
             root_instance = parent_module->root_instance;
             const_cast<Module*>(parent_module)->add_module_instance(this);

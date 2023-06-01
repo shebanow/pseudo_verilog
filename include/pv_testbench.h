@@ -121,6 +121,9 @@ public:
             // Mark all modules as having not had an eval() call yet.
             mark_no_eval(this);
 
+            // search all modules looking to see if any need a forced evaluation this clock.
+            trigger_on_force_eval_next_clock(this);
+
             // run pre-clock edge against the loaded test bench
             this->pre_clock(clock_num);
 
@@ -386,6 +389,16 @@ private:
         trigger_module(m);
         for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
             trigger_all_modules(*it);
+    }
+
+    // Method to search all instanced modules looking for those that need triggering due to force_eval_next_clock() call.
+    void trigger_on_force_eval_next_clock(const Module* m) {
+        if (m->get_needs_evaluation()) {
+            trigger_module(m);
+            const_cast<Module*>(m)->set_needs_evaluation(false);
+        }
+        for (std::set<const Module*>::const_iterator it = m->m_begin(); it != m->m_end(); it++)
+            trigger_on_force_eval_next_clock(*it);
     }
 
     // Method to mark all modules has not haveing had eval() called yet.
