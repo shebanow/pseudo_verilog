@@ -338,6 +338,9 @@ public:
     inline WireTemplateBase  operator--(int)
 		{ WireTemplateBase tmp = *this; T new_v = value - 1; common_assignment(is_x, new_v, "operator++(int)"); return tmp; }
 
+    // Method to return std::string for value of this wire type.
+    const std::string value_string() const { return is_x ? v2s.undefined() : (v2s)(value); }
+
     // Set up a trace or tear it down.
     inline void enable_trace(const bool en) {
         tracing = en;
@@ -500,8 +503,6 @@ private:
         if (init) {
             init_x = was_x = is_x = false;
             init_value = old_value = value = *init;
-            if (this->sensitized_module)
-                const_cast<Module*>(this->root_instance)->trigger_module(sensitized_module);
         } else
             init_x = was_x = is_x = true;
     }

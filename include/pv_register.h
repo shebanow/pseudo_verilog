@@ -268,6 +268,9 @@ public:
     Register& operator++(int) = delete;
     Register& operator--(int) = delete;
 
+    // Method to return std::string for value of this wire type.
+    const std::string value_string() const { return replica_x ? v2s.undefined() : (v2s)(replica); }
+
     // Set up a trace or tear it down.
     inline void enable_trace(const bool en) {
         tracing = en;
