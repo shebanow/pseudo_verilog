@@ -2,8 +2,19 @@
 
 This header-only library implements a Verilog-like C++ simulation infrastructure for hardware design.
 This library is an alternative to SystemC (https://systemc.org/overview/systemc/) with the 
-intent to create a more Verilog-lookalike design.
-Signals in this library are quasi three state (0, 1, and 'x'). 
+intent to create a more Verilog-lookalike design. Presently, the implementation implements a 
+simple "single universal clock" model. Signals in this library are quasi three state (0, 1, and 'x'). 
+
+Longer term, some possible improvements:
+
+* Supporting multiple asynchronous clocks, with actions on both positive and negative edges.
+* Exporting clock definitions as wires so logic can make use of clock signal values.
+* Adding objects that directly mimic ```always @(*)```, ```always @(posedge clk)```, and ```always @(negedge clk)```.
+* Unifying both signals (```Wire```, ```QWire```, ```Input```, and ```Output```) with ```Register``` 
+so they truly can be used interchangeably. 
+* Making signals accept Verilog-like character strings (e.g., ```8'b0``` or ```2'bxx```) as values
+that can be assigned to signals. This will eliminate the need for all the ```assign_x()```
+or ```value_is_x()``` calls.
 
 # A Simple Example
 
@@ -78,6 +89,7 @@ Skipping the implementation for now, a single register is declared:
 private:
     Register<int, 4> instance(counter); // The actual counter register
 ```
+
 Like the output, this register is of type ```int``` with a width of 4 bits.
 This register is declared private as it is internal to the implementation of the counter.
 
@@ -110,12 +122,14 @@ This completes the implementation of the ```Counter``` class.
 # Detailed Description
 
 Seven primary classes are defined to help simulate hardware behavior:
+
 * Module - container for implementation modules (aka, blocks).
 * Wire, QWire, Input, & Output - containers for simulating ports and wires (akin to Verilog ports and wires). 
 * Register - container for simulating registers (flip flops) (akin to Verilog "reg").
 * Testbench - a type of Module employed to test implementations.
 
 In addition, there are four other classes/functions that support the library:
+
 * ```vcd::bitwidth<T>```: a class used to infer or specify the bit width of a type.
 * ```int vcd::bitidth<T>()```: related function to return that bit width.
 * ```std::string vcd::value2string_t<T>```: function to return a VCD-style string of some value.
@@ -158,37 +172,45 @@ while registers and wires are related to its implementation.
 
 To help with declaring instances within a module (for example, wires, registers or other submodules), 
 a macro is defined to make that easier (and cleaner to read). For example:
+
 ```cpp
   Wire<type> instance(myWire);
 ```
+
 For non-module instances, the ```instance()``` macro can also specify an optional initialization value.
 For example:
+
 ```cpp
    Register<type> instance(myReg, 0);
 ```
+
 If an initialization value is provided, this value is "remembered" and a function ```reset_to_init_state()```
 defined in the ```Testbench``` class can be used to restore this initialization value to all defined
 registers and wire/port instances.
 
-If required, a module can also declare a public ```init()``` method. There is no formal interface for ```init()``` - modules can define
-whatever API they want. The intent of defining an ```init()``` method is to allow a module to initialize itself prior to simulation start,
-but after all other modules are declared and instanced. In general, such methods should be declared as ```void```.
+If required, a module can also declare a public ```init()``` method. There is no formal interface for ```init()``` - 
+modules can define whatever API they want. The intent of defining an ```init()``` method is to allow a module to 
+initialize itself prior to simulation start, but after all other modules are declared and instanced.
+In general, such methods should be declared as ```void```.
 
 The ```Module``` class provides some additional methods that can assist in implementing subclasses. 
 Methods to return the direct parent of an instance along with a method
 to return the outermost grandparent of an instance:
+
 ```cpp
      const Module* parent() 
      const Module* top() 
 ```
 
 The class also includes methods to return the module's name, full instance name, and module type:
+
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
 ```
-The instance name will be a full "dotted" path name (e.g., ```top.next.name```); if a module is top level, the instance name and the module
-name will be identical.
+
+The instance name will be a full "dotted" path name (e.g., ```top.next.name```); if a module is top level,
+the instance name and the module name will be identical.
 
 ## The Signal Classes
 
@@ -200,13 +222,16 @@ There are four types of signals:
     template <typename T, int W =-1> Wire;
     template <typename T, int W =-1> QWire;
 ```
+
 In all cases, the parameter T specifies the type of the signal while the optional parameter W represents 
 its bit width (the default value of -1 indicates that the library should infer with using T).
 Note that post instancing of a signal, you can still set or get the bit width of a signal using these methods:
+
 ```cpp
     void set_width(const int width);
     int get_width();
 ```
+
 As indicated before, width actually has no effect on operations upon the base class of a signal.
 Width only is employed when dumping to VCD files.
 
@@ -220,6 +245,7 @@ ideal "probe" signal (much like a scope probe in a physical electrical circuit).
 
 Like the ```Module``` class, the signal classes also define methods to return the direct parent 
 of an instance along with a method to return the outermost grandparent of an instance:
+
 ```cpp
      const Module* parent() 
      const Module* top() 
@@ -230,11 +256,13 @@ type allows. This value can be read usually using the signal as an ```rvalue``` 
 However, you can force a read on this value by casting the signal to it's base type (i.e., ```(T) sig```).
 A signal can also be in the ```X``` state as well. Three methods are defined to access a signal's
 ```X``` status:
+
 ```cpp
     bool value_is_x();
     bool value_was_x();
     void assign_x();
 ```
+
 The first method ```value_is_x()``` returns true if the signal is current ```X```.
 The second method ```value_was_x()``` returns true if the signal was ```X``` at the start of a clock cycle.
 The third method ```assign_x()``` assigns an ```X``` value to the signal; it is treated
@@ -245,14 +273,18 @@ that cares about this, it is important that code first test for ```X``` and then
 accordingly. Also note that writing a value to a signal (via ```operator=()``` - see below) wipes
 out any ```X``` state.
 
-Reading a signal has no effect on its state. Writing to a signal can be made through assignment, for example:
+Reading a signal has no effect on its state. Writing to a signal can be made through assignment, 
+for example:
+
 ```cpp
   x = 3;
 ```
+
 If the signal had any other value before other than 3, post assignment, any 
 modules connected to ```x``` will be reevaluated. 
 Note that there is a danger here though with structure/class types: assignments to fields 
 within a wire are not detected by the class. For example:
+
 ```cpp
 struct example {
     int f1;
@@ -264,10 +296,12 @@ void eval() {
     ex.f1 = 3;
 }
 ```
+
 In this example, ```f1``` is a field of the structure ```example```; assigning to this field
 uses normal C++ semantics, not the overloaded ```operator=()``` contained with the ```Wire<>```
 class definition.
 So, it is better to declare wires with the structure like this:
+
 ```cpp
 struct example {
     Wire<int> f1;
@@ -279,10 +313,12 @@ void eval() {
     ex.f1 = 3;
 }
 ```
+
 This will ensure that the ```Wire<>``` class implementation will evaluate
 any connected modules upon a wire state change.
 
 The following is a list of assignment operators that are overloaded by the signal classes:
+
 * ```operator=()```: simple assignment.
 * ```operator+=()```: add-assign.
 * ```operator-=()```: subtract-assign.
@@ -301,6 +337,7 @@ Assigning or auto-incrementing/auto-decrementing to a signal class-type will
 trigger ```eval()``` calls per the rules defined above. 
 
 Identical to the ```Module``` class, there are also a number of getters related to naming:
+
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
@@ -315,10 +352,12 @@ its bit width (the default value of -1 indicates that the library should infer w
 Unlike signals, it is perfectly ok to use with structure/class types as the base type for a register.
 Note that post instancing of a register, as with signals,
 you can still set or get the bit width of a register using these methods:
+
 ```cpp
     void set_width(const int width);
     int get_width();
 ```
+
 Like signals, width actually has no effect on operations upon the base class of a register.
 Width only is employed when dumping to VCD files.
 
@@ -326,10 +365,12 @@ Registers employ "source-replica" stages (more PC than "master-slave). The sourc
 the replica stage is back end. Upon a clock edge, the source is copied to the replica. 
 When writing a register, the source is updated. When reading from a register, the replica is provided.
 Direct access to both the replica and source re provided through a pair of methods:
+
 ```cpp
     T& d();
     T& q();
 ```
+
 The first method ```d()``` returns a reference to the source.
 The second method ```q()``` returns a reference to the replica.
 
@@ -339,6 +380,7 @@ Registers are not separately controlled by any enable; such behavior if desired 
 
 Like the signal classes, the ```Register<>``` class also define methods to return the direct parent 
 of an instance along with a method to return the outermost grandparent of an instance:
+
 ```cpp
      const Module* parent() 
      const Module* top() 
@@ -350,19 +392,23 @@ type allows. This replica stage can be read using the signal as an ```rvalue``` 
 However, you can force a read on this stage by casting the register to it's base type (i.e., ```(T) reg```).
 A replica stage can also be in the ```X``` state as well. Two methods are defined to access a replica's
 ```X``` status:
+
 ```cpp
     bool value_is_x();
     bool value_will_be_x();
 ```
+
 The first method ```value_is_x()``` returns true if the signal is current ```X```.
 The second method ```value_will_be_x()``` returns true if the signal wil be an ```X``` after the next
 clock edge.
 
 Two other methods can be used to write an ```X``` to the source or both source and replica stages:
+
 ```cpp
     void assign_x();
     void reset_to_x();
 ```
+
 The first method ```assign_x()``` just sets the source stage to ```X```.
 The second method ```reset_to_x()```sets both the source and replica stages to ```X```.
 Note that a register being in the ```X``` state has no effect on the 
@@ -375,12 +421,14 @@ out any ```X``` state.
 To update a register's value, the ```operator<=()``` is overloaded.
 This mimics Verilog's non-blocking assignment operator.
 Assignments to registers thus take the for as in the following example:
+
 ```cpp
     Register<int> instance(x);
     void eval() {
         x <= 2;
     }
 ```
+
 In this case, ```x``` is updated to the value 2 after the rising edge of clock.
 
 Unlike the signal classes, the direct assignment operator (```operator=()```) and
@@ -389,6 +437,7 @@ In addition, both pre- and post- auto-increment (```++```) and auto-decrement (`
 are also disabled.
 
 Identical to the ```Module``` and signal classes, there are also a number of getters related to naming:
+
 ```cpp
   const std::string name() const;
   const std::string instanceName() const;
@@ -408,9 +457,11 @@ ports. Similarly, top-level subclass instances of a ```Module``` class can also 
 
 In addition to features of a ```Module```, subclasses of ```Testbench``` must also implement a ```main()```
 method:
+
 ```cpp
     void main(int argc, char** argv);
 ```
+
 Like the master implementation of ```main()```, a ```Testbench``` subclass ```main()``` is also passed program
 command line arguments. However, these arguments will typically have command arguments pertinent to the main
 program stripped before being called. Having command line arguments passed to a ```Testbench``` subclass
@@ -419,9 +470,11 @@ allows that subclass to configure itself prior to simulation.
 Within ```main()```, after processing command line arguments, the method should perform a simulation of the
 hardware system it intends to model. To that end, the ```Testbench``` subclass defines a ```simulation()```
 method to simulate its system:
+
 ```cpp
     int simulation(const bool continue_clock_sequence = false);
 ```
+
 This method will run a simulation until some kind of stop condition arises.
 Upon exit, a return code is returned (see below on ```end_simulation()```).
 The one argument to this method, ```continue_clock_sequence```, controls whether this is a new
@@ -430,12 +483,15 @@ simulation sequence or a continuation of a last simulation call. By default, a n
 test cases, it is perhaps easier to call ```simulation()``` once per test case, and as such each 
 successive call is a clock count-wise continuation of the last simulation.) To assist with running
 multiple simulations, there is a method to restore initial state:
+
 ```cpp
     void reset_to_instance_state();
 ```
+
 This method will restore all signals and registers to the state they had when they were instanced.
 
 The simplified algorithm implemented by ```simulation()``` is shown below (without VCD-related code):
+
 ```cpp
 int simulation(const bool continue_clock_sequence = false) {
     // Clock, idle, and iteration counters.
@@ -463,7 +519,8 @@ int simulation(const bool continue_clock_sequence = false) {
         // Increment clock number to the next numbered cycle.
         clock_num++;
         
-        // "pre_clock(...)" is an optional user-defined method called before any change activity occurs.
+        // "pre_clock(...)" is an optional user-defined method called 
+        // before any change activity occurs.
         this->pre_clock(clock_num);
         
         // Advance all flops via a posedge clock
@@ -495,7 +552,8 @@ int simulation(const bool continue_clock_sequence = false) {
         // Clear iteration count for next loop.
         iteration_count = 0;
         
-        // "post_clock(...)" is an optional user-defined method called after any change activity occurs.
+        // "post_clock(...)" is an optional user-defined method called 
+        // after any change activity occurs.
         this->post_clock(clock_num);
         
         // If end of simulation requested, exit loop.
@@ -507,21 +565,25 @@ int simulation(const bool continue_clock_sequence = false) {
     return code;
 }
 ```
+
 The code above includes inline comments to explain its behavior. The boolean ```exit_simulation```
 can be set within module ```eval()``` code as they are being evaluated to force simulation exit.
 There is a method to return the current clock cycle number in case this is needed:
+
 ```cpp
     const uint32_t get_clock();
 ```
 
 As mentioned in the simplified code above, there are variables that control ```simulation()```.
 Methods to set these variables are:
+
 ```cpp
     void set_vcd_writer(const vcd::writer* w);
     void set_idle_limit(const int32_t idle_limit);
     void set_cycle_limit(const int32_t cycle_limit);
     void set_iteration_limit(const int32_t iteration_limit);
  ```
+
 The first method ```set_vcd_writer()``` installs a VCD dump writer (an instance of the ```vcd::writer``` class
 defined later in this document). If not installed, no VCD file will be dumped (and VCD dumps can in fact be 
 later turned off by calling this with a ```NULL``` argument). By default, there is no writer.
@@ -545,6 +607,7 @@ The iteration limit restricts the number of such iterations so as to not allow a
 By default, there is no limit.
 
 Mirroring the setters defined above, there are getters to allow applications to access these parameters:
+
 ```cpp
     vcd::writer* get_vcd_writer();
     int32_t get_idle_limit();
@@ -555,8 +618,10 @@ Mirroring the setters defined above, there are getters to allow applications to 
 Normally, a simulation would be restricted to run some finite number of clocks controlled via
 ```set_cycle_limit()```. However, an alternative is to have the simulated design via its testbench
 end the simulation. A specific method is provided for this purpose:
+
 ```cpp
-    template<typename ... Args> void end_simulation(const int code, const char* fmt, Args ... args);
+    template<typename ... Args> 
+    void end_simulation(const int code, const char* fmt, Args ... args);
 ```
 This command will end a simulation at the end of the current clock cycle (after ```post_clock(...)``` 
 is completed). The arguments to the method begin with a return ```code``` for the ```simulation()``` call.
@@ -569,15 +634,72 @@ be generated as well (with the same syntax as ```printf()```). If this is not de
 argument ```NULL```. Upon exit, ```simulation()``` returns the aforementioned exit code. And if 
 ```end_simulation()``` was never called, a return code of zero will be returned. If desired, the
 exit string can be accessed via:
+
 ```cpp
     const std::string& error_string();
 ```
+
+# Signal Tracing
+
+The library supports tracing of ```Wire```, ```QWire```, ```Input```, ```Output```, and
+```Register``` signals. When traced, in each clock, any change to any of those signal types is recorded
+and then listed to ```stdout``` at the end of each clock. As an example, each trace record has the following
+format:
+
+```
+>>> ------------------------------------------
+>>> Clock 1
+>>> T Name                 NTR NST Start   End
+>>> ------------------------------------------
+>>> I dut.i_reset_x          2   1     x     0
+>>> ------------------------------------------
+```
+
+Headings for a record are:
+
+* "T": the type of signal being traced. 'I' for ```Input```, 'O' for ```Output```, 
+'W' for ```Wire```, 'Q' for ```QWire```, and 'R' for ```Register```.
+* "Name": the full instance name of the signal.
+* "NTR": (number of transitions) = the number of evaluations (```eval()```) calls that resulted
+in the signal changing value (recall that ```eval()``` can happen multiple times in a clock).
+* "NST": (number of static changes) = the number of evaluations (```eval()```) calls that resulted
+in no signal change that clock (again, recall that ```eval()``` can happen multiple times in a clock).
+* "Start": the value the signal had at the start of the clock cycle.
+* "End": the value the signal had at the end of the clock cycle.
+
+Again, only signals that ultimately change value are reported.
+
+```Wire```, ```QWire```, ```Input```, ```Output```, and ```Register``` signals can be enabled or
+disabled for tracing via a pair of methods:
+
+```cpp
+    void trace();
+    void untrace();
+    void enable_trace(const bool en);
+```
+
+* the ```trace()``` method turns on tracing.
+* The ```untrace()``` method reverses that and turns off tracing.
+* The ```enable_trace(const bool en)``` method allows a caller to turn on/off tracing via the ```en``` parameter.
+
+Tracing by default is off for all signals.
+
+In addition to tracing, if desired, users can also convert the present value of a signal to 
+a VCD-like binary string:
+
+```cpp
+    const std::string value_string() const;
+```
+
+This call can be applied to ```Wire```, ```QWire```, ```Input```, ```Output```, and ```Register``` signal
+types.
 
 # VCD Generation
 
 The library can be used to generate Verilog change dump (VCD) files.
 In the ```vcd``` namespace, the ```writer``` class is defined to create a VCD writer object.
 The constructor for a writer is defined as:
+
 ```cpp
     writer(const std::string& file_name);
 ```
@@ -587,6 +709,7 @@ This file will be open until the writer object is destructed.
 Note that if an error results in attempting to open the VCD file, 
 an error diagnostic will be printed to stderr and the file will not be opened.
 Applications can test for this using the ```is_open()``` method:
+
 ```cpp
     bool is_open();
 ```
@@ -598,12 +721,15 @@ To use the writer object, it must be bound to a ```Testbench``` subclass instanc
 Normally, once bound, the writer will dump all changes for all simulated clock cycles.
 In some cases, this could result in very large VCD files.
 To restrict the range of dumps, two methods are defined in the writer class:
+
 ````cpp
     void set_vcd_start_clock(const int32_t v);
     void set_vcd_stop_clock(const int32_t v);
 ````
+
 They set the first and last clock to perform dumps. Either or both can be set. A negative value
 passed to either disables their function. Two getters are defined to return their current values:
+
 ```cpp
   const int32_t get_vcd_start_clock();
   const int32_t get_vcd_stop_clock();
@@ -611,10 +737,13 @@ passed to either disables their function. Two getters are defined to return thei
 
 Normally, in a VCD file, the string ```*@``` is used as an ID for the ```clk``` (clock) signal implicitly defined.
 This can be overridden using a method:
+
 ```cpp
     void set_vcd_clock_ID(const std::string id);
 ```
+
 There is a corresponding getter to return the current string.
+
 ```cpp
     const std::string& get_vcd_clock_ID();
 ```
@@ -623,6 +752,7 @@ variables. This cannot be changed.
 
 VCD files require both a timescale and associated units value. Two enumerator classes are defined for this 
 purpose.
+
 ```cpp
     // Enum class for timescale.
     enum class TS_time {
@@ -641,16 +771,21 @@ purpose.
         fs              // fsec     (10^-15)
     };
 ```
+
 A control method is used to set a simulation operating point in the writer:
+
 ```cpp
-    void set_operating_point(const float freq, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns);
+    void set_operating_point(const float freq, 
+        const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns);
 ```
+
 The first parameter ```freq``` defines the simulated frequency.
 The ```time``` and ```unit``` parameters then define the timescale and unit for the VCD file.
 The method then computes "ticks per clock" based on these parameters (the number of Verilog time
 ticks for each clock cycle).
 By default, unless set by this method, the VCD file assumes a frequency of 1 Hz and a timescale string of "1 s".
 Four getter methods are defined to return these parameters:
+
 ```cpp
     float get_clock_freq();
     float get_timescale();
@@ -672,7 +807,9 @@ test* (DUT). The DUT is the real object of desire. In general, DUT should be a s
 a chip or IP block), but in theory a ```Testbench``` subclass could implement multiple submodule instances
 and connect them within the ```eval()``` method.
 
-To invoke simulation within ```main(...)```, we recommend guarding the ```simulation()``` call in a try-catch block:
+To invoke simulation within ```main(...)```, we recommend guarding the ```simulation()``` call
+in a try-catch block:
+
 ```cpp
     int code;
     try {
@@ -687,8 +824,10 @@ To invoke simulation within ```main(...)```, we recommend guarding the ```simula
         exit(1);
     }
 ```
+
 The simulation call can throw errors if idle cycles are exceeded or an iteration limit is reached. We also 
 recommend preconfiguring simulation controls via these calls:
+
 * ```void set_idle_limit(const int32_t idle_limit)```: set a limit on the number of idle cycles. Unless you are
 very sure that deadlocks are impossible, we recommend setting some limit here. 
 * ```void set_iteration_limit(const int32_t iteration_limit)```: set a limit on the number of iterations.
@@ -697,6 +836,7 @@ By default, iteration limit is set to 10; applications could ignore changing thi
 As mentioned in the detailed description, it is possible to invoke ```simulation(...)``` multiple times, continuing
 clock numbering across the calls.
 A typical use pattern would look like this:
+
 ```cpp
     for (int test_case = 0; test_case < num_cases; test_case++) {
         reset_to_instance_state();
@@ -709,7 +849,9 @@ A typical use pattern would look like this:
         }      
     }
 ```
+
 Two facets of this code are very important to note:
+
 * The call to ```reset_to_instance_state()```: this resets the simulator state back to what it was
 when the objects in the simulator were instanced. Without this call, simulations after the first call
 could be using a prior call's state with the unintended consequences that could follow from that.
@@ -726,6 +868,7 @@ actual simulation occurs (before or after any change-drive ```eval()``` calls).
 A good potential use for the ```pre_clock(...)``` method is to conditionally activate some condition based on 
 clock cycle number. For example, if some software-driven external event is to occur at clock cycle "key_event", 
 pre_clock could be coded as:
+
 ```cpp
     void pre_clock(const uint32_t cycle_num) {
         extern uint32_t key_event_clock;
@@ -735,6 +878,7 @@ pre_clock could be coded as:
         }
     }
 ```
+
 Similarly, the ```post_clock(...)``` method can be used to react to events within simulation at some clock
 number. Or, it can be used unconditionally at every clock to detect events within simulation. The use of 
 ```pre_clock(...)``` and ```post_clock(...)``` methods is a good way to tie external software to a specific
@@ -884,6 +1028,7 @@ output wires representing the state of the north-south and east-west traffic lig
 Private to the TLC are the registers representing the state of the TLC.
 
 The associated testbench for the TLC module is shown below:
+
 ```cpp
 // TLC test bench
 struct tlc_tb : public Testbench {
@@ -896,7 +1041,8 @@ struct tlc_tb : public Testbench {
 
     void tlc_usage() {
         extern char* prog_name;
-        std::cerr << "usage: " << prog_name << " <program options> tlc [-t timer_ticks]" << std::endl;
+        std::cerr << "usage: " << prog_name << 
+            " <program options> tlc [-t timer_ticks]" << std::endl;
         exit(1);
     }
 
@@ -949,7 +1095,8 @@ struct tlc_tb : public Testbench {
     }
 
     void post_clock(const uint32_t cycle_num) {
-        printf("clock %u: East-West = %s, North-South = %s\n", cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
+        printf("clock %u: East-West = %s, North-South = %s\n", 
+            cycle_num, color2str(iTLC.east_west), color2str(iTLC.north_south));
     }
 
     // Timer length option.
