@@ -29,20 +29,25 @@
  *        │ RegisterTemplateBase<T> │
  *        └─────────────────────────┘
  * 
- * The superclass RegisterBase is at the top of the hierarchy. It provides the basis register types:
- * its instance name (local and global), means to sensitize/desensitize this register to a Module, and
- * support for VCD dumps on a register. It's not a template class so as to allow all register instances to be
- * grouped in a single global database as well as allow iteration across all register instances.
+ * The superclass RegisterBase is at the top of the hierarchy. It provides the
+ * basis register types: its instance name (local and global), means to
+ * sensitize/desensitize this register to a Module, and support for VCD dumps
+ * on a register. It's not a template class so as to allow all register
+ * instances to be grouped in a single global database as well as allow
+ * iteration across all register instances.
  *
- * Below that is a templated base class, RegisterTemplateBase whose type is T. All generic operator overloads
- * are implemented in this subclass. In addition, means to get register state/set register state are included along
- * with trigger propogation to all connected modules. Lastly, VCD change detection support is also included.
- * Register state itself is represented using a pair of "source" (aka "master") and "replica" (aka "slave")
- * states (and mirrored with Boolean "x_" values to represent X states). On a positive edge of clock, the
- * source states are copied into the replica states, and if a state change occur, modules sensitized to a
- * register are triggered for eval() scheduling. Operator overloads are also implemented in this subclass.
- * Of note: classical assignments ('=') are disabled and replaced with the '<=' operator to echo a non-blocking
- * assignment in Verilog.
+ * Below that is a templated base class, RegisterTemplateBase whose type is T.
+ * All generic operator overloads are implemented in this subclass. In
+ * addition, means to get register state/set register state are included along
+ * with trigger propogation to all connected modules. Lastly, VCD change
+ * detection support is also included. Register state itself is represented
+ * using a pair of "source" (aka "master") and "replica" (aka "slave") states
+ * (and mirrored with Boolean "x_" values to represent X states). On a positive
+ * edge of clock, the source states are copied into the replica states, and if
+ * a state change occur, modules sensitized to a register are triggered for
+ * eval() scheduling. Operator overloads are also implemented in this subclass.
+ * Of note: classical assignments ('=') are disabled and replaced with the '<='
+ * operator to echo a non-blocking assignment in Verilog.
  */
 
 // Forward declarations.
@@ -62,23 +67,31 @@ class Testbench;
  *      - parent(): return pointer to parent Module.
  *      - top(): returns pointer to topmost module instance (a Testbench).
  *  Related to VCD dumps:
- *      - {virtual, abstract} emit_vcd_definition() - print the definition of a register to a VCD stream.
- *      - {virtual, abstract} emit_vcd_dumpvars() - print the initial state of a register to a VCD stream.
- *      - {virtual, abstract} emit_vcd_dumpon() - functionally equivalent to emit_vcd_dumpvars().
- *      - {virtual, abstract} emit_vcd_dumpoff() - print 'x' states for the register to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_definition() - print the definition of a
+ *        register to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpvars() - print the initial state of a
+ *        register to a VCD stream.
+ *      - {virtual, abstract} emit_vcd_dumpon() - functionally equivalent to
+ *        emit_vcd_dumpvars().
+ *      - {virtual, abstract} emit_vcd_dumpoff() - print 'x' states for the
+ *        register to a VCD stream.
  *
  * Protected methods in this class:
- *      - {virtual, abstract} pos_edge() - execute a positive edge clock on this register; pass stream pointer if dumping to a VCD.
+ *      - {virtual, abstract} pos_edge() - execute a positive edge clock on this
+ *        register; pass stream pointer if dumping to a VCD.
  */
 
 class RegisterBase {
 protected:
     // Constructors/Destructor: protected so only subclass can use.
-    RegisterBase(const Module* p, const char* str) : parent_module(p), root_instance(p ? p->root_instance : NULL), register_name(str)
-        { constructor_common(); }
-    RegisterBase(const Module* p, const std::string& str) : parent_module(p), root_instance(p ? p->root_instance : NULL), register_name(str)
-        { constructor_common(); }
-    virtual ~RegisterBase() { const_cast<Module*>(parent_module)->remove_register_instance(this); }
+    RegisterBase(const Module* p, const char* str) : parent_module(p), 
+        root_instance(p ? p->root_instance : NULL), register_name(str)
+            { constructor_common(); }
+    RegisterBase(const Module* p, const std::string& str) : parent_module(p), 
+        root_instance(p ? p->root_instance : NULL), register_name(str)
+            { constructor_common(); }
+    virtual ~RegisterBase() 
+        { const_cast<Module*>(parent_module)->remove_register_instance(this); }
 
 public: 
     // Disallow general public use (constructor and copy constructor).
@@ -125,10 +138,12 @@ private:
     friend class Testbench; 
     friend class vcd::writer;
 
-    // Virtual method to reset register to the state it had when instanced. Actual implementation in Register<T>.
+    // Virtual method to reset register to the state it had when instanced.
+    // Actual implementation in Register<T>.
     virtual void reset_to_instance_state() {}
 
-    // Restore replica: copy replica value back to source. Actual implementation in Register<T>.
+    // Restore replica: copy replica value back to source. 
+    // Actual implementation in Register<T>.
     virtual void restore_replica() {}
 
     // Common constuctor code.
@@ -175,7 +190,8 @@ private:
  *      - value_is_x(): returns true if replica value is "x"
  *      - value_will_be_x(): returns true if source value is "x"
  *  VCD related:
- *      - set_vcd_string_printer(): override default string printer; caller responsible for any object delete
+ *      - set_vcd_string_printer(): override default string printer; 
+ *        caller responsible for any object delete
  *      - emit_vcd_definition(): emit VCD definition of reg
  *      - emit_vcd_dumpvars(): dump initial values of reg
  *      - emit_vcd_dumpon(): synonym to dumpvars
@@ -188,14 +204,18 @@ class Register final : public RegisterBase {
 public:
     // Constructors/Destructor.
     // Disallow default constructor and copy constructor.
-    Register(const Module* p, const char* str) : RegisterBase(p, str), v2s(def_printer)
-        { constructor_common(p, str, NULL); }
-    Register(const Module* p, const char* str, const T& init) : RegisterBase(p, str), v2s(def_printer)
-        { constructor_common(p, str, &init); }
-    Register(const Module* p, const std::string& str) : RegisterBase(p, str), v2s(def_printer)
-        { constructor_common(p, str.c_str(), NULL); }
-    Register(const Module* p, const std::string& str, const T& init) : RegisterBase(p, str), v2s(def_printer)
-        { constructor_common(p, str.c_str(), &init); }
+    Register(const Module* p, const char* str) : 
+        RegisterBase(p, str), v2s(def_printer)
+            { constructor_common(p, str, NULL); }
+    Register(const Module* p, const char* str, const T& init) : 
+        RegisterBase(p, str), v2s(def_printer)
+            { constructor_common(p, str, &init); }
+    Register(const Module* p, const std::string& str) : 
+        RegisterBase(p, str), v2s(def_printer)
+            { constructor_common(p, str.c_str(), NULL); }
+    Register(const Module* p, const std::string& str, const T& init) : 
+        RegisterBase(p, str), v2s(def_printer)
+            { constructor_common(p, str.c_str(), &init); }
     Register() = delete;
     Register(const Register& r) = delete;
     virtual ~Register() {}

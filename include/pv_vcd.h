@@ -37,19 +37,21 @@
  *   ( 1 )( 2 )       ( 3 )                 ( 4 )                                          
  *    `─'  `─'         `─'                   `─'                                           
  *
- * At top, there is the master clock signal. Four events are then labled:
- *  1. The rising edge of clock is generated. This is emitted to the VCD file assuming we are dumping signals.
- *  2. The simulator is clocked, theerby forcing updates of all registers. And registers whose state changes are dumped.
- *  3. Register changes then force potential wire changes. When these quiesce, any wires changing value are dumped.
- *  4. The falling edge of clock is generated and emitted to the VCD. All wire change "mousetraps" are reset.
+ * At top, there is the master clock signal. Four events are then labled: 1. The rising edge of
+ * clock is generated. This is emitted to the VCD file assuming we are dumping signals. 2. The
+ * simulator is clocked, theerby forcing updates of all registers. And registers whose state
+ * changes are dumped. 3. Register changes then force potential wire changes. When these quiesce,
+ * any wires changing value are dumped. 4. The falling edge of clock is generated and emitted to
+ * the VCD. All wire change "mousetraps" are reset.
  *
  * Since dumping can be enabled for disabled at specified clock boundaries, event 4 is augmented:
  *  - If VCD dump is enabled at clock #SS, in clock (SS-1) we do a "$dumpon" at event 4.
- *  - Similarly, if VCD dumps are disabled at clock #ST, in clock ST the falling edge of clock is emitted, we do a "$dumpoff"
- * If VCD dump start/stop times are unspecified, one or both "$dumpon" and/or "$dumpoff" might be omitted.
+ *  - Similarly, if VCD dumps are disabled at clock #ST, in clock ST the falling edge of clock is
+ *    emitted, we do a "$dumpoff" If VCD dump start/stop times are unspecified, one or
+ *    both "$dumpon" and/or "$dumpoff" might be omitted.
  *
- * This header implements a "writer" class in the "vcd" namespace that is used by simulators to create and write
- * VCD files.
+ * This header implements a "writer" class in the "vcd" namespace that is used by simulators to
+ * create and write VCD files.
  */
 
 // Update this macro as needed for signficant release changes to this header.
@@ -133,28 +135,29 @@ namespace vcd {
         inline bool is_open() const { return file_is_open; }
 
         // Method to set operating attributes (frequency and timescale).
-        void set_operating_point(const float freq, const TS_time time = TS_time::t1, const TS_unit unit = TS_unit::ns) {
-            // Convert time to string; save time scale period.
-            switch (time) {
-            case TS_time::t1:   time_str = "1 ";   timescale = 1;   break;
-            case TS_time::t10:  time_str = "10 ";  timescale = 10;  break;
-            case TS_time::t100: time_str = "100 "; timescale = 100; break;
-            }
+        void set_operating_point(const float freq, const TS_time time = TS_time::t1, 
+            const TS_unit unit = TS_unit::ns) {
+                // Convert time to string; save time scale period.
+                switch (time) {
+                case TS_time::t1:   time_str = "1 ";   timescale = 1;   break;
+                case TS_time::t10:  time_str = "10 ";  timescale = 10;  break;
+                case TS_time::t100: time_str = "100 "; timescale = 100; break;
+                }
 
-            // Convert unit to string; update time scale period.
-            switch (unit) {
-            case TS_unit::s:    time_str += "s";  break;
-            case TS_unit::ms:   time_str += "ms"; timescale *= 1e-3;  break;
-            case TS_unit::us:   time_str += "us"; timescale *= 1e-6;  break;
-            case TS_unit::ns:   time_str += "ns"; timescale *= 1e-9;  break;
-            case TS_unit::ps:   time_str += "ps"; timescale *= 1e-12; break;
-            case TS_unit::fs:   time_str += "fs"; timescale *= 1e-15; break;
-            }
+                // Convert unit to string; update time scale period.
+                switch (unit) {
+                case TS_unit::s:    time_str += "s";  break;
+                case TS_unit::ms:   time_str += "ms"; timescale *= 1e-3;  break;
+                case TS_unit::us:   time_str += "us"; timescale *= 1e-6;  break;
+                case TS_unit::ns:   time_str += "ns"; timescale *= 1e-9;  break;
+                case TS_unit::ps:   time_str += "ps"; timescale *= 1e-12; break;
+                case TS_unit::fs:   time_str += "fs"; timescale *= 1e-15; break;
+                }
 
-            // Install clock rate and compute ticks/clock.
-            clock_freq = freq;
-            float f_ticks_per_clock = 1.0 / (clock_freq * timescale);
-            ticks_per_clock = (f_ticks_per_clock < 2.0) ? 2ull : (uint64_t) f_ticks_per_clock;
+                // Install clock rate and compute ticks/clock.
+                clock_freq = freq;
+                float f_ticks_per_clock = 1.0 / (clock_freq * timescale);
+                ticks_per_clock = (f_ticks_per_clock < 2.0) ? 2ull : (uint64_t) f_ticks_per_clock;
         }
 
         // Method to emit a VCD header.
@@ -168,18 +171,22 @@ namespace vcd {
         /*** VCD COMMENT EMIT ***/
         // Comment block.
         inline void emit_comment(const std::string& comment) 
-            { check_state(); *vcd_stream << "$comment" << std::endl << comment << std::endl << "$end" << std::endl; }
+            { check_state(); *vcd_stream << "$comment" << std::endl 
+                << comment << std::endl << "$end" << std::endl; }
 
         /*** VCD HEADER EMITS ***/
         // Scope/upscope.
         inline void emit_scope(const std::string& module_name)
-            { check_state(); *vcd_stream << "$scope module " << module_name << " $end" << std::endl; }
+            { check_state(); *vcd_stream << "$scope module " << module_name 
+                << " $end" << std::endl; }
         inline void emit_upscope()
             { check_state(); *vcd_stream << "$upscope $end" << std::endl; }
 
         // Wire/register defines.
-        inline void emit_definition(const std::string& type, const int width, const std::string& vcd_ID, const std::string& name)
-            { check_state(); *vcd_stream << "$var " << type << " " << width << " " << vcd_ID << " " << name << " $end" << std::endl; }
+        inline void emit_definition(const std::string& type, const int width, 
+            const std::string& vcd_ID, const std::string& name)
+                { check_state(); *vcd_stream << "$var " << type << " " << width 
+                    << " " << vcd_ID << " " << name << " $end" << std::endl; }
 
         // Emit vcd_clock_ID.
         inline void emit_vcd_clock_ID()
@@ -217,7 +224,8 @@ namespace vcd {
 
         // Signal emits.
         inline void emit_change(const std::string& id, const int width, const std::string& value)
-            { check_state(); if (is_emitting_change) *vcd_stream << value << (width > 1 ? " " : "") << id << std::endl; }
+            { check_state(); if (is_emitting_change) *vcd_stream << value 
+                << (width > 1 ? " " : "") << id << std::endl; }
 
         // Setter/getter for is_emitting_change.
         inline void set_emitting_change(const bool en) { is_emitting_change = en; }

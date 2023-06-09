@@ -27,15 +27,19 @@
 #define SIM_ERR_ITERATION_LIMIT -3
 
 /*
- * The Testbench class is used as a template for constructing testbenches to test modules in a model.
- * As a Testbench is a subclass of Module, testbenches have an eval() function as well, called upon changes to outputs of
- * the DUT it is testing. Also like Module, a Testbench can comtain other simulatable (i.e., clockable) components and 
- * be sensitized accordingly. Testbenches differ from regular modules in that there is a main() function that accepts
- * command line arguments to be processed as well as pre_clock() and post_clock() functions, and most importantly, a
- * simulation function which actually does all the clocking. The main() function initializes the testbench, processing
- * remaining command line arguments. The pre_clock() and post_clock() functions are then called at the start and end
- * of each clock cycle respectively. Finally, the simulation() function runs the model for as many clocks as required or
- * allowed, driving the eval functions as needed.
+ * The Testbench class is used as a template for constructing testbenches to
+ * test modules in a model. As a Testbench is a subclass of Module, testbenches
+ * have an eval() function as well, called upon changes to outputs of the DUT
+ * it is testing. Also like Module, a Testbench can comtain other simulatable
+ * (i.e., clockable) components and be sensitized accordingly. Testbenches
+ * differ from regular modules in that there is a main() function that accepts
+ * command line arguments to be processed as well as pre_clock() and post_clock
+ * () functions, and most importantly, a simulation function which actually
+ * does all the clocking. The main() function initializes the testbench,
+ * processing remaining command line arguments. The pre_clock() and post_clock
+ * () functions are then called at the start and end of each clock cycle
+ * respectively. Finally, the simulation() function runs the model for as many
+ * clocks as required or allowed, driving the eval functions as needed.
  */
 
 class Testbench : public Module {
@@ -58,26 +62,39 @@ public:
      * Running a simulation. Code below runs all test cases. 
      *
      * Parameters controlling a simulation:
-     * - set_vcd_writer(): point to a VCD writer class (by default NULL => no VCD dump)
+     * - set_vcd_writer(): point to a VCD writer class (by default 
+     *     NULL => no VCD dump)
      *      - writer->set_vcd_start_clock(): when to start dumping to a VCD
-     *      - writer->set_vcd_stop_clock(): when to stop dumping to a VCD; vcd_stop_clock > vcd_start_clock
-     * - set_idle_limit(): set a limit on the number of clock cycles in which no activity takes place; -1 => no limit
-     * - set_cycle_limit(): set a limit on the number of clocks we can run; -1 => no limit
-     * - set_iteration_limit(): set a limit on the number of eval() iterations per clock; -1 => no limit
+     *      - writer->set_vcd_stop_clock(): when to stop dumping to a VCD;
+     *        vcd_stop_clock > vcd_start_clock
+     * - set_idle_limit(): set a limit on the number of clock cycles in which no
+     *   activity takes place; -1 => no limit
+     * - set_cycle_limit(): set a limit on the number of clocks we can run; 
+     *      -1 => no limit
+     * - set_iteration_limit(): set a limit on the number of eval() iterations
+     *   per clock; -1 => no limit
      * - end_simulation(): call when you want to end a simulation now.
      */
 
     // Simulation parameter getters.
-    inline const int32_t get_cycle_limit() const { return opt_cycle_limit; }
-    inline const int32_t get_iteration_limit() const { return opt_iteration_limit; }
-    inline const int32_t get_idle_limit() const { return opt_idle_limit; }
-    inline const vcd::writer* get_vcd_writer() const { return writer; }
+    inline const int32_t get_cycle_limit() const 
+        { return opt_cycle_limit; }
+    inline const int32_t get_iteration_limit() const 
+        { return opt_iteration_limit; }
+    inline const int32_t get_idle_limit() const 
+        { return opt_idle_limit; }
+    inline const vcd::writer* get_vcd_writer() const 
+        { return writer; }
 
     // Simulation parameter setters.
-    inline void set_vcd_writer(const vcd::writer* w) { writer = const_cast<vcd::writer*>(w); }
-    inline void set_idle_limit(const int32_t idle_limit) { opt_idle_limit = idle_limit; }
-    inline void set_cycle_limit(const int32_t cycle_limit) { opt_cycle_limit = cycle_limit; }
-    inline void set_iteration_limit(const int32_t iteration_limit) { opt_iteration_limit = iteration_limit; }
+    inline void set_vcd_writer(const vcd::writer* w) 
+        { writer = const_cast<vcd::writer*>(w); }
+    inline void set_idle_limit(const int32_t idle_limit) 
+        { opt_idle_limit = idle_limit; }
+    inline void set_cycle_limit(const int32_t cycle_limit) 
+        { opt_cycle_limit = cycle_limit; }
+    inline void set_iteration_limit(const int32_t iteration_limit) 
+        { opt_iteration_limit = iteration_limit; }
 
     // Simulation runtime getter.
     inline const uint32_t get_clock() const { return clock_num; }
@@ -109,12 +126,11 @@ public:
         // Trigger all modules at least once so as to make sure simulation is "kick started."
         trigger_all_modules(this);
 
-        // Run simulation cycles. 
-        // The first test resets clock_num to 0 if we are *not* continuing a clock sequence from any prior simulation.
-        // By default, this is the case. This control is useful if a test bench uses multiple simulation calls.
-        if (!continue_clock_sequence)
-            clock_num = 0;
-        do {
+        // Run simulation cycles. The first test resets clock_num to 0 if we
+        // are *not* continuing a clock sequence from any prior simulation. By
+        // default, this is the case. This control is useful if a test bench
+        // uses multiple simulation calls.
+        if (!continue_clock_sequence) clock_num = 0; do {
             // Increment clock number to the next numbered cycle.
             clock_num++;
 
@@ -150,8 +166,9 @@ public:
             // Clock all flops.
             this->pos_edge(this);
             if (writer && writer->is_open() && writer->get_emitting_change())
-                for (std::set<const RegisterBase*>::const_iterator it = changed_registers.begin(); it != changed_registers.end(); it++)
-                    const_cast<RegisterBase*>(*it)->emit_register(writer->get_stream());
+                for (std::set<const RegisterBase*>::const_iterator it = 
+                    changed_registers.begin(); it != changed_registers.end(); it++)
+                        const_cast<RegisterBase*>(*it)->emit_register(writer->get_stream());
             changed_registers.clear();
 
             // Guard the following code with a try-catch block as it can throw exceptions.
@@ -180,11 +197,12 @@ public:
                     triggered.clear();
 
                     // Iterate through to do list, updating each module
-                    for (std::set<const Module*>::const_iterator it = to_do_list.begin(); it != to_do_list.end(); it++) {
-                        if ((*it)->get_eval_has_been_called())
-                            restore_register_replica_state(*it);
-                        const_cast<Module*>(*it)->set_eval_has_been_called(true);
-                        const_cast<Module*>(*it)->eval();
+                    for (std::set<const Module*>::const_iterator it = to_do_list.begin(); 
+                        it != to_do_list.end(); it++) {
+                            if ((*it)->get_eval_has_been_called())
+                                restore_register_replica_state(*it);
+                            const_cast<Module*>(*it)->set_eval_has_been_called(true);
+                            const_cast<Module*>(*it)->eval();
                     }
                 }
             } catch (const std::exception& e) {
@@ -196,12 +214,14 @@ public:
             
             // Negative edge clock calls.
             if (writer != NULL && writer->is_open() && writer->get_emitting_change()) {
-                for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
-                    const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
+                for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); 
+                    it != changed_wires.end(); it++)
+                        const_cast<WireBase *>(*it)->emit_vcd_neg_edge_update(writer->get_stream());
                 vcd_generate_falling_edge(clock_num);
             }
-            for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); it != changed_wires.end(); it++)
-                const_cast<WireBase *>(*it)->neg_edge_update();
+            for (std::set<const WireBase*>::const_iterator it = changed_wires.begin(); 
+                it != changed_wires.end(); it++)
+                    const_cast<WireBase *>(*it)->neg_edge_update();
             changed_wires.clear();
             dump_trace();
 
@@ -339,16 +359,18 @@ private:
 
         // Determine if anything changed.
         bool any_changes = false;
-        for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); it != value_change_map.end(); it++) {
-            if (it->second.is_changed) {
-                any_changes = true;
-                break;
-            }
+        for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); 
+            it != value_change_map.end(); it++) {
+                if (it->second.is_changed) {
+                    any_changes = true;
+                    break;
+                }
         }
 
         // Print header
         if (any_changes) {
-            int ln_size = value_change_sizes.max_instance_name_len + 2 * std::max(value_change_sizes.max_width+1, 5) + 12;
+            int ln_size = value_change_sizes.max_instance_name_len + 2 * 
+                std::max(value_change_sizes.max_width+1, 5) + 12;
             int buf_size = ln_size + 5;
             std::string divider(ln_size, '-');
 
@@ -361,17 +383,19 @@ private:
                 std::max(value_change_sizes.max_width+1, 5), "End");
             std::cout << buf << std::endl;
             std::cout << ">>> " << divider << std::endl;
-            for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); it != value_change_map.end(); it++) {
-                if (!it->second.is_changed)
-                    continue;
-                snprintf(buf, buf_size, ">>> %c %-*s %3d %3d %*s %*s",
-                    it->second.type, value_change_sizes.max_instance_name_len, it->first.c_str(), it->second.NTR, it->second.NST,
-                    std::max(value_change_sizes.max_width+1, 5), it->second.start_value.c_str(),
-                    std::max(value_change_sizes.max_width+1, 5), it->second.end_value.c_str());
-                std::cout << buf << std::endl;
-            }
-            std::cout << ">>> " << divider << std::endl;
-            delete[] buf;
+            for (std::map<const std::string, pv::ValueChangeRecord>::iterator it = value_change_map.begin(); 
+                it != value_change_map.end(); it++) {
+                    if (!it->second.is_changed)
+                        continue;
+                    snprintf(buf, buf_size, ">>> %c %-*s %3d %3d %*s %*s",
+                        it->second.type, value_change_sizes.max_instance_name_len, 
+                        it->first.c_str(), it->second.NTR, it->second.NST,
+                        std::max(value_change_sizes.max_width+1, 5), it->second.start_value.c_str(),
+                        std::max(value_change_sizes.max_width+1, 5), it->second.end_value.c_str());
+                    std::cout << buf << std::endl;
+                }
+                std::cout << ">>> " << divider << std::endl;
+                delete[] buf;
         }
         value_change_map.clear();
     }
@@ -391,7 +415,8 @@ private:
             trigger_all_modules(*it);
     }
 
-    // Method to search all instanced modules looking for those that need triggering due to force_eval_next_clock() call.
+    // Method to search all instanced modules looking for those that need 
+    // triggering due to force_eval_next_clock() call.
     void trigger_on_force_eval_next_clock(const Module* m) {
         if (m->get_needs_evaluation()) {
             trigger_module(m);

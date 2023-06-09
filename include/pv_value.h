@@ -24,7 +24,8 @@
 namespace pv {
     // This record records information about traced entities.
     struct ValueChangeRecord {
-        char type;                              // variable type (U<nknown>, R<egister>, I<nput>, O<utput>, W<ire>, Q<Wire>)
+        char type;                              // variable type (U<nknown>, R<egister>, I<nput>, 
+                                                // O<utput>, W<ire>, Q<Wire>)
         std::string start_value;                // value type had at start of clock
         std::string end_value;                  // value type had at end of clock
         bool is_changed;                        // did value change
@@ -41,17 +42,18 @@ namespace pv {
 } // end namespace pv
 
 /*
- * The vcd::value2string_t template class is used to convert a data value to a Verilog VCD-printable string.
- * Note: users can extend the class through other partial specializations of the template class.
- * Typically required when generating value strings of custom data types.
- * The VCD namespace is used for the vcd::value2string_t class as this class's usage is related to dumping VCD files.
+ * The vcd::value2string_t template class is used to convert a data value to a Verilog VCD-printable
+ * string. Note: users can extend the class through other partial specializations of the template
+ * class. Typically required when generating value strings of custom data types. The VCD namespace
+ * is used for the vcd::value2string_t class as this class's usage is related to dumping VCD
+ * files.
  */
 
 namespace vcd {
-    // value2string_base_t(const T& v): base class to print a type as required for a VCD file.
-    // The value2string_t is a class to be used for converting a value of type T to a string for inclusion in a VCD. 
-    class value2string_base_t {
-    public:
+    // value2string_base_t(const T& v): base class to print a type as required for a VCD file. The
+    // value2string_t is a class to be used for converting a value of type T to a string for
+    // inclusion in a VCD. 
+    class value2string_base_t { public:
         // Constructor takes bit width as argument.
         value2string_base_t(const int wv) : w(wv) {}
         value2string_base_t(const value2string_base_t& vb) = delete;
@@ -87,10 +89,12 @@ namespace vcd {
         int w;
     };
 
-    // Generic type implementation of value2string_t: this class can be specialized by a user as needed.
+    // Generic type implementation of value2string_t: this class can be 
+    // specialized by a user as needed.
     template <typename T>
     struct value2string_t : public value2string_base_t {
-        // Constructor: takes an argument which is some variable of the type to be printed.
+        // Constructor: takes an argument which is some variable 
+        // of the type to be printed.
         value2string_t(const T& v) : value2string_base_t(bitwidth<T>()) {}
         value2string_t(const value2string_t<T>& v) = delete;
 

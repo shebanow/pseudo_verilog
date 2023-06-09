@@ -29,10 +29,12 @@
 
 // Include subfile definitions
 #include "pv_macros.h"          // defines "instance" macros
-#include "pv_bitwidth.h"        // defines a bitwidth template class along with a templated function to compute bit width
+#include "pv_bitwidth.h"        // defines a bitwidth template class along with a 
+                                // templated function to compute bit width
 #include "pv_value.h"           // defines classes related to Verilog values
 #include "pv_module.h"          // defines "Module" superclass
-#include "pv_wires.h"           // defines WireBase, WireTemplateBase superclasses; defines Wire, Input, and Output classes
+#include "pv_wires.h"           // defines WireBase, WireTemplateBase superclasses; 
+                                // defines Wire, QWire, Input, and Output classes
 #include "pv_register.h"        // defines RegisterBase superclass and templated Register class.
 #include "pv_vcd.h"             // defines vcd::writer class, a VCD file writer
 #include "pv_testbench.h"       // defines Testbench superclass, a special type of Module

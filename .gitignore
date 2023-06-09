@@ -11,3 +11,5 @@ test/tlc
 test/tlc
 *.swp
 *.pdf
+doc/PV.md
+doc/pv.tex
