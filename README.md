@@ -212,6 +212,18 @@ The class also includes methods to return the module's name, full instance name,
 The instance name will be a full "dotted" path name (e.g., ```top.next.name```); if a module is top level,
 the instance name and the module name will be identical.
 
+The Module class also provides two methods for manually triggering evaluation:
+
+```cpp
+  void force_eval();
+  void force_eval_next_clock();
+```
+
+Calling ```force_eval()``` enqueues the module for immediate evaluation within
+the current clock cycle. The ```force_eval_next_clock()``` variant schedules the
+module to evaluate when the next clock cycle begins. These are mainly useful in
+testbenches or when dynamic control over evaluation timing is required.
+
 ## The Signal Classes
 
 There are four types of signals:
